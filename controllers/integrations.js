@@ -1,4 +1,4 @@
-const db = require("../firebaseClient");
+const db = require("../Finnished/firebase/firebaseClient");
 const { encrypt, decrypt } = require("../utils/encryption");
 
 // GET /api/integrations
@@ -17,7 +17,9 @@ async function getIntegrations(req, res) {
 
     // Decrypt secrets
     if (integrations.paypal) {
-      integrations.paypal.clientSecret = decrypt(integrations.paypal.clientSecret);
+      integrations.paypal.clientSecret = decrypt(
+        integrations.paypal.clientSecret
+      );
     }
 
     if (integrations.binance) {
@@ -27,7 +29,7 @@ async function getIntegrations(req, res) {
     integrations.banks = (integrations.banks || []).map((bank) => ({
       ...bank,
       apiKey: decrypt(bank.apiKey),
-      accessToken: decrypt(bank.accessToken)
+      accessToken: decrypt(bank.accessToken),
     }));
 
     res.status(200).json(integrations);
@@ -54,7 +56,7 @@ async function updateIntegration(req, res) {
       updates["integrations.paypal"] = {
         clientId: data.paypal.clientId,
         clientSecret: encrypt(data.paypal.clientSecret),
-        addedAt: new Date().toISOString()
+        addedAt: new Date().toISOString(),
       };
     }
 
@@ -63,7 +65,7 @@ async function updateIntegration(req, res) {
       updates["integrations.binance"] = {
         apiKey: data.binance.apiKey,
         apiSecret: encrypt(data.binance.apiSecret),
-        addedAt: new Date().toISOString()
+        addedAt: new Date().toISOString(),
       };
     }
 
@@ -73,10 +75,7 @@ async function updateIntegration(req, res) {
       const mergedWallets = { ...existingWallets };
 
       for (const [coin, newWallets] of Object.entries(data.wallets)) {
-        mergedWallets[coin] = [
-          ...(existingWallets[coin] || []),
-          ...newWallets
-        ];
+        mergedWallets[coin] = [...(existingWallets[coin] || []), ...newWallets];
       }
 
       updates["integrations.wallets"] = mergedWallets;
@@ -88,12 +87,13 @@ async function updateIntegration(req, res) {
       const mergedBanks = { ...existingBanks };
 
       for (const bank of data.banks) {
-        const bankId = bank.name?.toLowerCase().replace(/\s+/g, "_") + "_" + Date.now();
+        const bankId =
+          bank.name?.toLowerCase().replace(/\s+/g, "_") + "_" + Date.now();
         mergedBanks[bankId] = {
           name: bank.name,
           apiKey: encrypt(bank.apiKey),
           accessToken: encrypt(bank.accessToken),
-          addedAt: new Date().toISOString()
+          addedAt: new Date().toISOString(),
         };
       }
 
@@ -103,15 +103,16 @@ async function updateIntegration(req, res) {
     // === Save merged updates ===
     await userRef.set(updates, { merge: true });
 
-    res.status(200).json({ success: true, message: "✅ Integrations updated." });
+    res
+      .status(200)
+      .json({ success: true, message: "✅ Integrations updated." });
   } catch (err) {
     console.error("❌ Error updating integrations:", err.message);
     res.status(500).json({ error: "Failed to update integrations." });
   }
 }
 
-
 module.exports = {
   getIntegrations,
-  updateIntegration
+  updateIntegration,
 };
