@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Financial Input Test</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        padding: 2rem;
+        max-width: 600px;
+        margin: auto;
+      }
+      h2 {
+        margin-top: 2rem;
+      }
+      input,
+      textarea,
+      button {
+        width: 100%;
+        margin-top: 0.5rem;
+        padding: 0.5rem;
+      }
+      button {
+        margin-top: 1rem;
+      }
+      #result {
+        margin-top: 2rem;
+        white-space: pre-wrap;
+        background: #f4f4f4;
+        padding: 1rem;
+        border-radius: 5px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Financial Input Tester</h1>
+
+    <!-- Upload File -->
+    <h2>1. Upload a File</h2>
+    <form id="fileForm">
+      <input type="file" name="file" />
+      <button type="submit">Submit File</button>
+    </form>
+
+    <!-- Downloadable Link -->
+    <h2>2. Submit a Downloadable Link</h2>
+    <form id="linkForm">
+      <input
+        type="text"
+        name="fileUrl"
+        placeholder="https://example.com/yourfile.pdf"
+      />
+      <button type="submit">Submit Link</button>
+    </form>
+
+    <!-- Manual Entry -->
+    <h2>3. Enter Manual Text</h2>
+    <form id="manualForm">
+      <textarea
+        name="text"
+        rows="6"
+        placeholder="Manually enter your transactions..."
+      ></textarea>
+      <button type="submit">Submit Manual Text</button>
+    </form>
+
+    <div id="result"></div>
+
+    <script>
+      const serverUrl = "/api/analyze"; // Change if needed
+      const resultDiv = document.getElementById("result");
+
+      const showResult = (data) => {
+        resultDiv.innerHTML = "✅ Response:\n" + JSON.stringify(data, null, 2);
+      };
+
+      const handleError = (err) => {
+        resultDiv.innerHTML =
+          "❌ Error:\n" + err.message || JSON.stringify(err);
+      };
+
+      // File Form
+      document
+        .getElementById("fileForm")
+        .addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const formData = new FormData(e.target);
+
+          try {
+            const res = await fetch(serverUrl, {
+              method: "POST",
+              body: formData,
+            });
+            const data = await res.json();
+            showResult(data);
+          } catch (err) {
+            handleError(err);
+          }
+        });
+
+      // Link Form
+      document
+        .getElementById("linkForm")
+        .addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const formData = new FormData(e.target);
+          const fileUrl = formData.get("fileUrl");
+
+          try {
+            const res = await fetch(serverUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ fileUrl }),
+            });
+            const data = await res.json();
+            showResult(data);
+          } catch (err) {
+            handleError(err);
+          }
+        });
+
+      // Manual Text Form
+      document
+        .getElementById("manualForm")
+        .addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const formData = new FormData(e.target);
+          const text = formData.get("text");
+
+          try {
+            const res = await fetch(serverUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ text }),
+            });
+            const data = await res.json();
+            showResult(data);
+          } catch (err) {
+            handleError(err);
+          }
+        });
+    </script>
+  </body>
+</html>
