@@ -88,12 +88,12 @@ async function fetchBinanceBalance() {
   };
 }
 
-async function checkBalance() {
-  const balance = await fetchBinanceBalance();
-  console.log("Current Binance Balance:", balance);
-}
+// async function checkBalance() {
+//   const balance = await fetchBinanceBalance();
+//   console.log("Current Binance Balance:", balance);
+// }
 
-checkBalance();
+// checkBalance();
 module.exports = {
   fetchBinanceBalance,
 };

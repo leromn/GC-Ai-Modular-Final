@@ -8,14 +8,14 @@ const BLOCKSTREAM_BASE_URL = "https://blockstream.info/api";
 async function fetchEthereumTransactions(address) {
   const url = `https://api.etherscan.io/api?module=account&action=txlist&address=${address}&sort=desc&apikey=${ETHERSCAN_API_KEY}`;
   const res = await axios.get(url);
-  return res.data.result || [];
+  return (res.data.result || []).slice(0, 10);
 }
 
 // === ERC20 USDT Transactions on Ethereum ===
 async function fetchUSDTTransactions(address) {
   const url = `https://api.etherscan.io/api?module=account&action=tokentx&address=${address}&contractaddress=0xdac17f958d2ee523a2206206994597c13d831ec7&sort=desc&apikey=${ETHERSCAN_API_KEY}`;
   const res = await axios.get(url);
-  return res.data.result || [];
+  return (res.data.result || []).slice(0, 10);
 }
 
 // === Bitcoin Transactions via Blockstream ===
@@ -23,7 +23,7 @@ async function fetchBitcoinTransactions(address) {
   const txIdsRes = await axios.get(
     `${BLOCKSTREAM_BASE_URL}/address/${address}/txs`
   );
-  return txIdsRes.data || [];
+  return (txIdsRes.data || []).slice(0, 10);
 }
 
 // (async () => {

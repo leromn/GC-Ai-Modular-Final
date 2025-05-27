@@ -23,15 +23,31 @@ async function getAccessToken() {
         },
       }
     );
+    console.log("✅ PayPal access token acquired");
     return response.data.access_token;
   } catch (err) {
-    console.error("PayPal Auth Error:", err.response?.data || err.message);
+    console.error("❌ PayPal Auth Error:", err.response?.data || err.message);
     throw err;
   }
 }
 
+// Utility to format date in the required format
+function toPayPalDate(date) {
+  return new Date(date).toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
 async function fetchPayPalTransactions(startDate, endDate) {
   const accessToken = await getAccessToken();
+
+  const formattedStart = toPayPalDate(startDate);
+  const formattedEnd = toPayPalDate(endDate);
+
+  console.log(
+    "📅 Fetching PayPal transactions from",
+    formattedStart,
+    "to",
+    formattedEnd
+  );
 
   try {
     const response = await axios.get(`${BASE_URL}/v1/reporting/transactions`, {
@@ -40,15 +56,20 @@ async function fetchPayPalTransactions(startDate, endDate) {
         "Content-Type": "application/json",
       },
       params: {
-        start_date: startDate,
-        end_date: endDate,
+        start_date: formattedStart,
+        end_date: formattedEnd,
         fields: "all",
+        page_size: 100,
       },
     });
-    console.log("Paypal tx fetched");
-    return response.data.transaction_details;
+
+    console.log(
+      "✅ PayPal transactions fetched:",
+      response.data.transaction_details?.length || 0
+    );
+    return response.data.transaction_details || [];
   } catch (err) {
-    console.error("PayPal Fetch Error:", err.response?.data || err.message);
+    console.error("❌ PayPal Fetch Error:", err.response?.data || err.message);
     throw err;
   }
 }

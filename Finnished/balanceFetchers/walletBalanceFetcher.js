@@ -84,14 +84,14 @@ async function fetchTotalWalletBalance({ ethAddress, btcAddress }) {
   };
 }
 
-(async () => {
-  const balance = await fetchTotalWalletBalance({
-    ethAddress: "0x00000000219ab540356cBB839Cbe05303d7705Fa",
-    btcAddress: "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
-  });
+// (async () => {
+//   const balance = await fetchTotalWalletBalance({
+//     ethAddress: "0x00000000219ab540356cBB839Cbe05303d7705Fa",
+//     btcAddress: "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
+//   });
 
-  console.log("Total Wallet Balance in USD:", balance);
-})();
+//   console.log("Total Wallet Balance in USD:", balance);
+// })();
 
 module.exports = {
   fetchTotalWalletBalance,

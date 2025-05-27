@@ -54,8 +54,8 @@ async function updateIntegration(req, res) {
     // === PAYPAL ===
     if (data.paypal) {
       updates["integrations.paypal"] = {
-        clientId: data.paypal.clientId,
-        clientSecret: encrypt(data.paypal.clientSecret),
+        apiKey: data.paypal.clientId,
+        apiSecret: encrypt(data.paypal.clientSecret),
         addedAt: new Date().toISOString(),
       };
     }
@@ -90,9 +90,9 @@ async function updateIntegration(req, res) {
         const bankId =
           bank.name?.toLowerCase().replace(/\s+/g, "_") + "_" + Date.now();
         mergedBanks[bankId] = {
-          name: bank.name,
+          platform: bank.name,
           apiKey: encrypt(bank.apiKey),
-          accessToken: encrypt(bank.accessToken),
+          apiSecret: encrypt(bank.accessToken),
           addedAt: new Date().toISOString(),
         };
       }

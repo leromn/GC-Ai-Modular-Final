@@ -1,7 +1,8 @@
 const crypto = require("crypto");
 
 const ALGORITHM = "aes-256-cbc";
-const SECRET_KEY = process.env.ENCRYPTION_SECRET || "your32byteverysecurekeyhere123!"; // 32 chars
+const SECRET_KEY =
+  process.env.ENCRYPTION_SECRET || "!23456789oabcdef123456789oabcdef"; // 32 chars
 const IV_LENGTH = 16;
 
 // Encrypt a string
@@ -18,7 +19,11 @@ function decrypt(encryptedText) {
   const [ivHex, encryptedHex] = encryptedText.split(":");
   const iv = Buffer.from(ivHex, "hex");
   const encrypted = Buffer.from(encryptedHex, "hex");
-  const decipher = crypto.createDecipheriv(ALGORITHM, Buffer.from(SECRET_KEY), iv);
+  const decipher = crypto.createDecipheriv(
+    ALGORITHM,
+    Buffer.from(SECRET_KEY),
+    iv
+  );
   let decrypted = decipher.update(encrypted);
   decrypted = Buffer.concat([decrypted, decipher.final()]);
   return decrypted.toString();
