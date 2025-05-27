@@ -13,7 +13,7 @@ function normalizeBinanceTransactions({ deposits = [], withdrawals = [] }) {
       date: new Date(tx.insertTime).toISOString(),
       from: tx.address || "unknown",
       to: "binance",
-      raw: tx,
+      // raw: tx,
     });
   });
 
@@ -28,7 +28,7 @@ function normalizeBinanceTransactions({ deposits = [], withdrawals = [] }) {
       date: new Date(tx.applyTime).toISOString(),
       from: "binance",
       to: tx.address || "unknown",
-      raw: tx,
+      // raw: tx,
     });
   });
 
