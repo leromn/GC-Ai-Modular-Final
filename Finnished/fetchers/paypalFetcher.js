@@ -1,16 +1,29 @@
+// const PAYPAL_CLIENT_ID =
+//   "AaDRQ4BHtrVyJ_dOFsKy8q8Dhin5De1FPHl5WgGz3U8w1V0Ub_mLGIx0YJykTkUR8VEVHIO1Vlnl1ygE";
+// const PAYPAL_CLIENT_SECRET =
+//   "ECp0zUGTejr_HcHPyVdhy0gg7t59WMRCi9lj7yNlmFPLcPRPgtDq4KN3fcKeoAaGXpkpf-kZKNACucDH";
+
 // services/paypalFetcher.js
 const axios = require("axios");
-const BASE_URL = "https://api-m.sandbox.paypal.com";
+const BASE_URL = "https://api-m.sandbox.paypal.com"; // Or https://api-m.paypal.com for live
 
-const PAYPAL_CLIENT_ID =
-  "AaDRQ4BHtrVyJ_dOFsKy8q8Dhin5De1FPHl5WgGz3U8w1V0Ub_mLGIx0YJykTkUR8VEVHIO1Vlnl1ygE";
-const PAYPAL_CLIENT_SECRET =
-  "ECp0zUGTejr_HcHPyVdhy0gg7t59WMRCi9lj7yNlmFPLcPRPgtDq4KN3fcKeoAaGXpkpf-kZKNACucDH";
+// Removed hardcoded PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET
 
-async function getAccessToken() {
-  const credentials = Buffer.from(
-    `${PAYPAL_CLIENT_ID}:${PAYPAL_CLIENT_SECRET}`
-  ).toString("base64");
+async function getAccessToken(credentials) {
+  // Accept credentials
+  const { clientId, clientSecret } = credentials;
+  if (!clientId || !clientSecret) {
+    console.error(
+      "❌ PayPal Auth Error: Missing clientId or clientSecret in credentials."
+    );
+    throw new Error(
+      "PayPal client ID or secret not provided for authentication."
+    );
+  }
+
+  const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString(
+    "base64"
+  );
 
   try {
     const response = await axios.post(
@@ -18,7 +31,7 @@ async function getAccessToken() {
       "grant_type=client_credentials",
       {
         headers: {
-          Authorization: `Basic ${credentials}`,
+          Authorization: `Basic ${basicAuth}`,
           "Content-Type": "application/x-www-form-urlencoded",
         },
       }
@@ -27,17 +40,44 @@ async function getAccessToken() {
     return response.data.access_token;
   } catch (err) {
     console.error("❌ PayPal Auth Error:", err.response?.data || err.message);
-    throw err;
+    // It's good to throw a more specific error or let the original error propagate
+    throw new Error(
+      `PayPal authentication failed: ${
+        err.response?.data?.error_description || err.message
+      }`
+    );
   }
 }
 
 // Utility to format date in the required format
 function toPayPalDate(date) {
-  return new Date(date).toISOString().replace(/\.\d{3}Z$/, "Z");
+  // Ensure date is a valid Date object
+  if (!(date instanceof Date) || isNaN(date.getTime())) {
+    console.error("toPayPalDate: Invalid date provided", date);
+    // Fallback or throw error, here returning current date as a very rough fallback
+    return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+  }
+  return date.toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
-async function fetchPayPalTransactions(startDate, endDate) {
-  const accessToken = await getAccessToken();
+// Modified to accept credentials, startDate, endDate
+async function fetchPayPalTransactions(credentials, startDate, endDate) {
+  if (!credentials) {
+    console.error(
+      "❌ fetchPayPalTransactions Error: Credentials not provided."
+    );
+    throw new Error("PayPal credentials are required.");
+  }
+  if (!startDate || !endDate) {
+    console.error(
+      "❌ fetchPayPalTransactions Error: startDate or endDate not provided."
+    );
+    throw new Error(
+      "Start date and end date are required for fetching PayPal transactions."
+    );
+  }
+
+  const accessToken = await getAccessToken(credentials);
 
   const formattedStart = toPayPalDate(startDate);
   const formattedEnd = toPayPalDate(endDate);
@@ -58,8 +98,9 @@ async function fetchPayPalTransactions(startDate, endDate) {
       params: {
         start_date: formattedStart,
         end_date: formattedEnd,
-        fields: "all",
-        page_size: 100,
+        fields: "all", // "transaction_info,payer_info,shipping_info,auction_info,cart_info,incentive_info,store_info"
+        page_size: 100, // Max 500
+        // consider 'balance_affecting_records_only': true if you only want those
       },
     });
 
@@ -70,10 +111,12 @@ async function fetchPayPalTransactions(startDate, endDate) {
     return response.data.transaction_details || [];
   } catch (err) {
     console.error("❌ PayPal Fetch Error:", err.response?.data || err.message);
+    // Propagate the error so the calling function can handle it
     throw err;
   }
 }
 
 module.exports = {
   fetchPayPalTransactions,
+  // getAccessToken could be exported if needed elsewhere, but typically internal
 };

@@ -1,47 +1,50 @@
-// initializeUser.js (or a more suitable name like dataSyncService.js)
+// initializeUserData.js (or your chosen file name e.g., dataSyncService.js)
+// Assuming this file is in a 'controllers' or 'services' directory
+// Adjust paths based on your project structure
+
 const db = require("../Finnished/firebase/firebaseClient"); // Adjust path
 const { decrypt } = require("../utils/encryption"); // Adjust path
 
-// === FETCHERS (Transaction and Balance fetchers needed) ===
+// === FETCHERS ===
 const {
   fetchBinanceTransactions,
-} = require("../Finnished/fetchers/binanceFetcher");
+} = require("../Finnished/fetchers/binanceFetcher"); // Adjust path
 const {
   fetchPayPalTransactions,
-} = require("../Finnished/fetchers/paypalFetcher");
+} = require("../Finnished/fetchers/paypalFetcher"); // Adjust path
 const {
   fetchEthereumTransactions,
   fetchUSDTTransactions,
   fetchBitcoinTransactions,
-} = require("../Finnished/fetchers/walletFetcher");
+} = require("../Finnished/fetchers/walletFetcher"); // Adjust path
 
+// === BALANCE FETCHERS ===
 const {
   fetchBinanceBalance,
-} = require("../Finnished/balanceFetchers/binanceBalanceFetcher");
+} = require("../Finnished/balanceFetchers/binanceBalanceFetcher"); // Adjust path
 const {
   fetchPayPalBalance,
-} = require("../Finnished/balanceFetchers/paypalBalanceFetcher");
+} = require("../Finnished/balanceFetchers/paypalBalanceFetcher"); // Adjust path
 const {
   fetchEthereumBalance,
   fetchUSDTBalance,
   fetchBitcoinBalance,
-  fetchCryptoPrices, // Import fetchCryptoPrices
-} = require("../Finnished/balanceFetchers/walletBalanceFetcher");
+  fetchCryptoPrices,
+} = require("../Finnished/balanceFetchers/walletBalanceFetcher"); // Adjust path
 
 // === NORMALISERS ===
 const {
   normalizeBinanceTransactions,
-} = require("../Finnished/normalizers/binanceNormalizer");
+} = require("../Finnished/normalizers/binanceNormalizer"); // Adjust path
 const {
   normalizePayPalTransactions,
-} = require("../Finnished/normalizers/paypalNormalizer");
+} = require("../Finnished/normalizers/paypalNormalizer"); // Adjust path
 const {
   normalizeEthereumTransactions,
   normalizeUSDTTransactions,
   normalizeBitcoinTransactions,
-} = require("../Finnished/normalizers/walletNormalizer");
+} = require("../Finnished/normalizers/walletNormalizer"); // Adjust path
 
-// Renamed function to reflect it now handles balances too
 const initializeUserData = async (req, res) => {
   const userId = req?.body?.userId || req?.query?.userId;
 
@@ -68,18 +71,14 @@ const initializeUserData = async (req, res) => {
     console.log("🔗 User integrations fetched for initialization.");
 
     let allTransactions = [];
-    let collectedRawBalances = []; // To store balances before USD conversion
+    let collectedRawBalances = [];
 
     // === Determine Date Range for Transactions (Previous Full Month) ===
     const today = new Date();
-    // End date is the last moment of the last day of the previous month
-    const txEndDate = new Date(today.getFullYear(), today.getMonth(), 0); // Day 0 of current month = last day of prev month
+    const txEndDate = new Date(today.getFullYear(), today.getMonth(), 0);
     txEndDate.setHours(23, 59, 59, 999);
-
-    // Start date is the first moment of the first day of the previous month
     const txStartDate = new Date(today.getFullYear(), today.getMonth() - 1, 1);
     txStartDate.setHours(0, 0, 0, 0);
-
     console.log(
       `🗓️ Initial Transaction Fetch Range: ${txStartDate.toISOString()} to ${txEndDate.toISOString()}`
     );
@@ -98,7 +97,6 @@ const initializeUserData = async (req, res) => {
           apiSecret: decryptedApiSecret,
         };
         try {
-          // Fetch Transactions
           const rawBinanceTxData = await fetchBinanceTransactions(
             binanceCredentials,
             txStartDate,
@@ -113,12 +111,11 @@ const initializeUserData = async (req, res) => {
             `✅ Normalized ${normalizedBinanceTx.length} Initial Binance Transactions.`
           );
 
-          // Fetch Balances
           const binanceBals = await fetchBinanceBalance(binanceCredentials);
           if (Array.isArray(binanceBals)) {
             binanceBals.forEach((bal) =>
               collectedRawBalances.push({
-                source: "binance",
+                source: bal.source || "binance",
                 asset: bal.asset,
                 amount: parseFloat(bal.free || 0) + parseFloat(bal.locked || 0),
                 currency: bal.asset,
@@ -134,7 +131,8 @@ const initializeUserData = async (req, res) => {
         } catch (binanceError) {
           console.error(
             "❌ Error processing initial Binance data:",
-            binanceError.message
+            binanceError.message,
+            binanceError.stack
           );
         }
       } else {
@@ -150,15 +148,16 @@ const initializeUserData = async (req, res) => {
       integrations.paypal.apiKey &&
       integrations.paypal.apiSecret
     ) {
-      const decryptedClientId = decrypt(integrations.paypal.apiKey);
-      const decryptedClientSecret = decrypt(integrations.paypal.apiSecret);
-      if (decryptedClientId && decryptedClientSecret) {
+      const decryptedPayPalClientId = decrypt(integrations.paypal.apiKey);
+      const decryptedPayPalClientSecret = decrypt(
+        integrations.paypal.apiSecret
+      );
+      if (decryptedPayPalClientId && decryptedPayPalClientSecret) {
         const paypalCredentials = {
-          clientId: decryptedClientId,
-          clientSecret: decryptedClientSecret,
+          clientId: decryptedPayPalClientId,
+          clientSecret: decryptedPayPalClientSecret,
         };
         try {
-          // Fetch Transactions
           const rawTx = await fetchPayPalTransactions(
             paypalCredentials,
             txStartDate,
@@ -172,28 +171,39 @@ const initializeUserData = async (req, res) => {
             `✅ Normalized ${normTx.length} Initial PayPal Transactions.`
           );
 
-          // Fetch Balances
-          const payPalBal = await fetchPayPalBalance(paypalCredentials);
-          if (payPalBal) {
-            (Array.isArray(payPalBal) ? payPalBal : [payPalBal]).forEach(
-              (bal) => {
-                if (bal && typeof bal.amount === "number" && bal.currency) {
-                  collectedRawBalances.push({
-                    source: "paypal",
-                    asset: bal.currency,
-                    amount: bal.amount,
-                    currency: bal.currency,
-                    name: `PayPal ${bal.currency}`,
-                  });
-                }
+          const payPalBals = await fetchPayPalBalance(paypalCredentials);
+          if (Array.isArray(payPalBals)) {
+            payPalBals.forEach((bal) => {
+              if (bal && typeof bal.amount === "number" && bal.currency) {
+                collectedRawBalances.push({
+                  source: bal.source || "paypal",
+                  asset: bal.currency,
+                  amount: bal.amount,
+                  currency: bal.currency,
+                  name: `PayPal ${bal.currency}`,
+                });
               }
-            );
+            });
+          } else if (
+            payPalBals &&
+            typeof payPalBals.amount === "number" &&
+            payPalBals.currency
+          ) {
+            // Handle single object case
+            collectedRawBalances.push({
+              source: payPalBals.source || "paypal",
+              asset: payPalBals.currency,
+              amount: payPalBals.amount,
+              currency: payPalBals.currency,
+              name: `PayPal ${payPalBals.currency}`,
+            });
           }
           console.log(`📊 Initial PayPal balances collected.`);
         } catch (paypalError) {
           console.error(
             "❌ Error processing initial PayPal data:",
-            paypalError.message
+            paypalError.message,
+            paypalError.stack
           );
         }
       } else {
@@ -232,7 +242,6 @@ const initializeUserData = async (req, res) => {
             const coinLower = coin.toLowerCase();
             const coinUpper = coin.toUpperCase();
 
-            // TODO: Update wallet fetchers if they need to respect txStartDate, txEndDate for a full historical sync
             if (coinLower === "eth") {
               rawWalletTx = await fetchEthereumTransactions(
                 userWalletAddress /*, txStartDate, txEndDate */
@@ -267,14 +276,8 @@ const initializeUserData = async (req, res) => {
               continue;
             }
 
-            allTransactions.push(...(normalizedWalletTx || []));
-            console.log(
-              `✅ Normalized ${
-                normalizedWalletTx ? normalizedWalletTx.length : 0
-              } Initial ${coinUpper} Tx for ${userWalletAddress.substring(
-                0,
-                10
-              )}...`
+            allTransactions.push(
+              ...(Array.isArray(normalizedWalletTx) ? normalizedWalletTx : [])
             );
 
             if (
@@ -295,24 +298,15 @@ const initializeUserData = async (req, res) => {
                     6
                   )}...)`,
               });
-            } else {
-              console.warn(
-                `⚠️ No valid initial balance fetched for ${coinUpper} ${userWalletAddress.substring(
-                  0,
-                  10
-                )}...`
-              );
             }
           } catch (error) {
             console.error(
               `❌ Error processing initial ${coin.toUpperCase()} wallet data for ${userWalletAddress}:`,
-              error.message
+              error.message,
+              error.stack
             );
           }
         }
-        console.log(
-          `📊 Initial wallets data for ${coin.toUpperCase()} processed.`
-        );
       }
     }
 
@@ -321,30 +315,39 @@ const initializeUserData = async (req, res) => {
     const balanceBreakdown = [];
     let cryptoCurrencyIdsForPriceFetch = new Set();
     collectedRawBalances.forEach((bal) => {
-      if (bal.currency !== "USD" && bal.amount > 0) {
-        if (bal.currency === "BTC")
+      if (bal.currency && bal.currency !== "USD" && bal.amount > 0) {
+        const currencyUpper = bal.currency.toUpperCase();
+        if (currencyUpper === "BTC")
           cryptoCurrencyIdsForPriceFetch.add("bitcoin");
-        else if (bal.currency === "ETH")
+        else if (currencyUpper === "ETH")
           cryptoCurrencyIdsForPriceFetch.add("ethereum");
-        else if (bal.currency === "USDT")
+        else if (currencyUpper === "USDT")
           cryptoCurrencyIdsForPriceFetch.add("tether");
-        // Add more mappings here if necessary
       }
     });
     const prices = await fetchCryptoPrices(
       Array.from(cryptoCurrencyIdsForPriceFetch)
     );
-    console.log("💰 Fetched Prices (USD) for initial data sync:", prices);
+    console.log("💰 Initial Sync: Fetched Prices (USD):", prices);
 
     for (const bal of collectedRawBalances) {
       let usdValue = 0;
-      if (bal.currency === "USD") usdValue = bal.amount;
-      else if (prices[bal.currency.toUpperCase()])
+      if (bal.currency === "USD") {
+        usdValue = bal.amount;
+      } else if (bal.currency && prices[bal.currency.toUpperCase()]) {
         usdValue = bal.amount * prices[bal.currency.toUpperCase()];
-      else if (bal.amount > 0)
-        console.warn(`⚠️ Initial Sync: No USD price for ${bal.currency}.`);
+      } else if (bal.amount > 0 && bal.currency) {
+        console.warn(
+          `⚠️ Initial Sync: No USD price for ${bal.currency}. Balance for ${
+            bal.name || bal.asset
+          } not converted.`
+        );
+      }
 
-      if (bal.amount > 0 || bal.currency === "USD") {
+      if (
+        bal.amount > 0 ||
+        (bal.currency === "USD" && bal.amount !== undefined)
+      ) {
         const breakdownItem = {
           source: bal.source,
           name: bal.name || `${bal.source} ${bal.asset}`,
@@ -364,7 +367,10 @@ const initializeUserData = async (req, res) => {
       breakdown: balanceBreakdown,
       retrievedAt: new Date().toISOString(),
     };
-    if (balanceBreakdown.length > 0) {
+    if (
+      balanceBreakdown.length > 0 ||
+      collectedRawBalances.some((b) => b.amount !== undefined)
+    ) {
       const balanceDocRef = userRef.collection("balances").doc("summary");
       await balanceDocRef.set(consolidatedBalanceData);
       console.log(
@@ -372,13 +378,13 @@ const initializeUserData = async (req, res) => {
       );
     } else console.log("ℹ️ Initial Sync: No balances to create summary.");
 
-    // === STORE ONLY NEW TRANSACTIONS (similar logic to cron job) ===
+    // === STORE ONLY NEW TRANSACTIONS ===
     if (allTransactions.length > 0) {
       const transactionsRef = userRef.collection("transactions");
       const existingSnap = await transactionsRef
         .select("txId")
         .limit(5000)
-        .get(); // Check against recently added, good enough for init
+        .get();
       const existingIds = new Set(
         existingSnap.docs.map((doc) => doc.data()?.txId).filter(Boolean)
       );
@@ -431,7 +437,6 @@ const initializeUserData = async (req, res) => {
   }
 };
 
-// Direct run block for testing initializeUserData
 if (require.main === module) {
   (async () => {
     const testUserId = "k3LLnHvMbjgGlSxtzLXl9MjB63y1"; // Use a distinct test user ID
@@ -445,32 +450,23 @@ if (require.main === module) {
       console.log(
         `Test user ${testUserId} does not exist. Creating with dummy integrations for test...`
       );
-      // You would need your `encrypt` function here if keys are actually encrypted during user setup
-      // For simplicity, I'm assuming keys are already in their "encrypted" string format from your example
       await userDocRef.set(
         {
           email: `${testUserId}@example.com`,
-          // MAKE SURE these apiKey/apiSecret values are DUMMY and NOT your real encrypted ones.
-          // For a true test, you'd use the encrypt() function you have to prepare these.
           integrations: {
-            // Example:
-            // paypal: { apiKey: "enc:fakePayPalClientId", apiSecret: "enc:fakePayPalSecret" },
-            // binance: { apiKey: "enc:fakeBinanceApiKey", apiSecret: "enc:fakeBinanceApiSecret" },
-            // wallets: { eth: [{ address: "0x00000000219ab540356cBB839Cbe05303d7705Fa", platform: "Test" }] }
+            /* Add dummy encrypted keys here if needed for test */
           },
         },
         { merge: true }
-      ); // Use merge to avoid overwriting other fields if user doc partially exists
-      console.log(
-        `Dummy user ${testUserId} created/updated with placeholder integrations.`
       );
+      console.log(`Dummy user ${testUserId} created/updated.`);
     } else {
       console.log(`Test user ${testUserId} found.`);
     }
 
-    const mockReq = { query: { userId: testUserId } };
+    const mockReq = { query: { userId: testUserId } }; // Simulate request
     await initializeUserData(mockReq, null);
   })();
 }
 
-module.exports = { initializeUserData }; // Export the renamed function
+module.exports = { initializeUserData };
