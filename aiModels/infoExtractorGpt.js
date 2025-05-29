@@ -6,18 +6,16 @@ const API_URL = "https://api.openai.com/v1/chat/completions";
 
 const categoriesList = [
   "Income",
-  "Housing",
-  "Food",
+  "Housing & Utilities",
+  "Food & Groceries",
   "Transportation",
   "Healthcare",
-  "Insurance",
-  "Debt Payment",
-  "Savings",
-  "Entertainment",
-  "Miscellaneous",
+  "Shopping & Entertainment",
+  "Transfers & Payments",
+  "Other Expenses",
 ];
 
-async function extractInvoiceInfo(owner, invoiceText = sampleInvoiceText) {
+async function extractInvoiceInfo(owner, invoiceText) {
   const prompt = `
 You are a data extractor. From the following text, extract these fields:
 
@@ -25,9 +23,7 @@ You are a data extractor. From the following text, extract these fields:
 - Account Holder (return as transOwner variable)
 - bank name(return as bankName variable)
 - Total Amount(number only) (return as "transAmount" variable)
-- IBAN (if available) (return as IBAN variable)
-- Country (return as country variable)
--transaction reason (is available) (return as reason variable)
+-transaction reason Type of service (return as reason variable)
 - is it "income" or "expense" for the account holder (return as cashflow variable)
 - does the account holder name exactly match ${owner} ? (return as isMine variable)
 - Category (choose ONLY from this list: ${categoriesList.join(
@@ -69,7 +65,7 @@ ${invoiceText}
       )
       .then(console.log("gpt working"));
     // console.log(response.data.choices[0]);
-    console.log(invoiceText);
+    // console.log(invoiceText);
 
     const duration = ((Date.now() - start) / 1000).toFixed(2);
 
@@ -89,7 +85,7 @@ ${invoiceText}
 }
 
 // 🧪 Example usage
-const sampleInvoiceText = `Commercial Bank of Ethiopia
+const sampleInvoiceText1 = `Commercial Bank of Ethiopia
 VAT Invoice / Customer Receipt
 Customer Name:
 ERMIAS ASSEFA TIBEBU
@@ -102,8 +98,94 @@ Payment Date & Time 4/10/2025, 12:50:00 PM
 Transferred Amount 105.00 ETB
 Country: Ethiopia
 `;
+const sampleInvoiceText = `Commercial Bank of Ethiopia
+VAT Invoice / Customer Receipt 
+Company Address & Other Information
+Country:
+City:
+Address:
+Postal code:
+SWIFT Code::
+Email:
+Tel:
+Fax:
+Tin:
+VAT Receipt No:
+VAT Registration No:
+VAT Registration Date:
+Ethiopia
+Addis Ababa
+Ras Desta Damtew St, 01, Kirkos
+255
+CBETETAA
+info@cbe.com.et
+251-551-50-04
+251-551-45-22
+0000006966
+FT25143S3K98
+011140
+01/01/2003
+Customer Information
+Customer Name:
+Region:
+City:
+Sub City:
+Wereda/Kebele:
+VAT Registration No:
+VAT Registration Date:
+TIN (TAX ID):
+Branch:
+ESRAEL ASEFFA HUNDE
+LOME
+_
+_
+_
+20210102
+_
+DIRE FOKA BRANCH
+Payment / Transaction Information
+Payer
+ESRAEL ASEFFA HUNDE
+Account
+Receiver
+Account
+Payment Date & Time
+Reference No. (VAT Invoice No)
+Reason / Type of service
+Transferred Amount
+1****2362
+EYOBE TSEGAYE SIELE
+1****3291
+5/22/2025, 9:08:00 PM
+FT25143S3K98
+Food done via Mobile
+500.00 ETB
+Commission or Service Charge
+0.00 ETB
+15% VAT on Commission
+0.00 ETB
+Total amount debited from customers account
+500.00 ETB
+Amount in Word
+ETB  Five Hundred & Zero cent
+`;
+// Assuming extractInvoiceInfo and sampleInvoiceText are defined above this block
 
-// extractInvoiceInfo("ERMIAS ASSEFA TIBEBU", sampleInvoiceText);
+// if (require.main === module) {
+//   // Define and immediately invoke the async function
+//   (async () => {
+//     try {
+//       // It's good practice to wrap async operations in try...catch
+//       console.log(
+//         await extractInvoiceInfo("ERMIAS ASSEFA TIBEBU", sampleInvoiceText)
+//       );
+//       console.log("--- Test execution finished ---");
+//     } catch (error) {
+//       console.error("--- Test execution failed ---");
+//       console.error("Error during test execution:", error);
+//     }
+//   })(); // <--- Add () here to call the function
+// }
 
 // 📤 Export it so you can use in other files
 module.exports = { extractInvoiceInfo };

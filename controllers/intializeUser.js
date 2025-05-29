@@ -1,432 +1,406 @@
-// initializeUserData.js (or your chosen file name e.g., dataSyncService.js)
-// Assuming this file is in a 'controllers' or 'services' directory
-// Adjust paths based on your project structure
+// initializeUserData.js
+const db = require("../Finnished/firebase/firebaseClient");
+const { decrypt } = require("../utils/encryption"); // Corrected path from memory
+const {
+  prepareTransactionsForCategorization,
+  categorizeTransactionsAI,
+} = require("../aiModels/arrayCategorizerGpt"); // Corrected path from memory
 
-const db = require("../Finnished/firebase/firebaseClient"); // Adjust path
-const { decrypt } = require("../utils/encryption"); // Adjust path
-
-// === FETCHERS ===
+// Fetchers & Balance Fetchers
 const {
   fetchBinanceTransactions,
-} = require("../Finnished/fetchers/binanceFetcher"); // Adjust path
+} = require("../Finnished/fetchers/binanceFetcher");
 const {
   fetchPayPalTransactions,
-} = require("../Finnished/fetchers/paypalFetcher"); // Adjust path
+} = require("../Finnished/fetchers/paypalFetcher");
 const {
   fetchEthereumTransactions,
   fetchUSDTTransactions,
   fetchBitcoinTransactions,
-} = require("../Finnished/fetchers/walletFetcher"); // Adjust path
-
-// === BALANCE FETCHERS ===
+} = require("../Finnished/fetchers/walletFetcher");
 const {
   fetchBinanceBalance,
-} = require("../Finnished/balanceFetchers/binanceBalanceFetcher"); // Adjust path
+} = require("../Finnished/balanceFetchers/binanceBalanceFetcher");
 const {
   fetchPayPalBalance,
-} = require("../Finnished/balanceFetchers/paypalBalanceFetcher"); // Adjust path
+} = require("../Finnished/balanceFetchers/paypalBalanceFetcher");
 const {
   fetchEthereumBalance,
   fetchUSDTBalance,
   fetchBitcoinBalance,
   fetchCryptoPrices,
-} = require("../Finnished/balanceFetchers/walletBalanceFetcher"); // Adjust path
-
-// === NORMALISERS ===
+} = require("../Finnished/balanceFetchers/walletBalanceFetcher");
+// Normalizers
 const {
   normalizeBinanceTransactions,
-} = require("../Finnished/normalizers/binanceNormalizer"); // Adjust path
+} = require("../Finnished/normalizers/binanceNormalizer");
 const {
   normalizePayPalTransactions,
-} = require("../Finnished/normalizers/paypalNormalizer"); // Adjust path
+} = require("../Finnished/normalizers/paypalNormalizer");
 const {
   normalizeEthereumTransactions,
   normalizeUSDTTransactions,
   normalizeBitcoinTransactions,
-} = require("../Finnished/normalizers/walletNormalizer"); // Adjust path
+} = require("../Finnished/normalizers/walletNormalizer");
 
 const initializeUserData = async (req, res) => {
-  const userId = req?.body?.userId || req?.query?.userId;
-
+  const userId =
+    req?.body?.userId || req?.query?.userId || "k3LLnHvMbjgGlSxtzLXl9MjB63y1"; // Test User ID
   if (!userId) {
-    console.error("initializeUserData: userId is required.");
-    if (res) res.status(400).send("User ID is required.");
+    console.error("initializeUserData: userId required.");
+    if (res) res.status(400).send("User ID required.");
     return;
   }
-  console.log(
-    "🚀 Initializing data (transactions & balances) for new user:",
-    userId
-  );
+  console.log("🚀 Initializing data (Tx & Bal) for new user:", userId);
 
   try {
-    const userRef = db.collection("users").doc(userId);
-    const userSnap = await userRef.get();
+    const userSnap = await db.collection("users").doc(userId).get();
     if (!userSnap.exists) {
-      console.error(`❌ User ${userId} not found for initialization.`);
+      console.error(`❌ User ${userId} not found for init.`);
       if (res) res.status(404).send("User not found.");
       return;
     }
     const userData = userSnap.data();
     const integrations = userData?.integrations || {};
-    console.log("🔗 User integrations fetched for initialization.");
+    console.log("🔗 User integrations fetched for init.");
 
-    let allTransactions = [];
+    let allNormalizedTransactions = []; // Store all normalized transactions before splitting
     let collectedRawBalances = [];
 
-    // === Determine Date Range for Transactions (Previous Full Month) ===
     const today = new Date();
     const txEndDate = new Date(today.getFullYear(), today.getMonth(), 0);
     txEndDate.setHours(23, 59, 59, 999);
     const txStartDate = new Date(today.getFullYear(), today.getMonth() - 1, 1);
     txStartDate.setHours(0, 0, 0, 0);
     console.log(
-      `🗓️ Initial Transaction Fetch Range: ${txStartDate.toISOString()} to ${txEndDate.toISOString()}`
+      `🗓️ Initial Tx Fetch Range: ${txStartDate.toISOString()} to ${txEndDate.toISOString()}`
     );
 
-    // ==== BINANCE ====
+    // --- BINANCE ---
     if (
       integrations.binance &&
       integrations.binance.apiKey &&
       integrations.binance.apiSecret
     ) {
-      const decryptedApiKey = decrypt(integrations.binance.apiKey);
-      const decryptedApiSecret = decrypt(integrations.binance.apiSecret);
-      if (decryptedApiKey && decryptedApiSecret) {
-        const binanceCredentials = {
-          apiKey: decryptedApiKey,
-          apiSecret: decryptedApiSecret,
-        };
+      const decApiKey = decrypt(integrations.binance.apiKey),
+        decApiSecret = decrypt(integrations.binance.apiSecret);
+      if (decApiKey && decApiSecret) {
+        const creds = { apiKey: decApiKey, apiSecret: decApiSecret };
         try {
-          const rawBinanceTxData = await fetchBinanceTransactions(
-            binanceCredentials,
+          const rawTx = await fetchBinanceTransactions(
+            creds,
             txStartDate,
             txEndDate
           );
-          console.log("📦 Initial Binance Transactions Data fetched.");
-          const normalizedBinanceTx = normalizeBinanceTransactions(
-            rawBinanceTxData || { deposits: [], withdrawals: [] }
+          const normTx = normalizeBinanceTransactions(
+            rawTx || { deposits: [], withdrawals: [] }
           );
-          allTransactions.push(...normalizedBinanceTx);
-          console.log(
-            `✅ Normalized ${normalizedBinanceTx.length} Initial Binance Transactions.`
-          );
-
-          const binanceBals = await fetchBinanceBalance(binanceCredentials);
-          if (Array.isArray(binanceBals)) {
-            binanceBals.forEach((bal) =>
+          allNormalizedTransactions.push(...normTx); // Add to main list
+          const bals = await fetchBinanceBalance(creds);
+          if (Array.isArray(bals))
+            bals.forEach((b) =>
               collectedRawBalances.push({
-                source: bal.source || "binance",
-                asset: bal.asset,
-                amount: parseFloat(bal.free || 0) + parseFloat(bal.locked || 0),
-                currency: bal.asset,
-                name: `Binance ${bal.asset}`,
+                source: b.source || "binance",
+                asset: b.asset,
+                amount: parseFloat(b.free || 0) + parseFloat(b.locked || 0),
+                currency: b.asset,
+                name: `Binance ${b.asset}`,
               })
             );
-          }
           console.log(
-            `📊 ${
-              binanceBals ? binanceBals.length : 0
-            } Initial Binance balances collected.`
+            `📊 Init Binance: ${normTx.length} Tx, ${
+              bals?.length || 0
+            } Bal types.`
           );
-        } catch (binanceError) {
-          console.error(
-            "❌ Error processing initial Binance data:",
-            binanceError.message,
-            binanceError.stack
-          );
+        } catch (e) {
+          console.error("❌ Init Binance Error:", e.message, e.stack);
         }
-      } else {
-        console.warn(
-          `⚠️ Failed to decrypt Binance API keys for user ${userId} during initialization.`
-        );
-      }
+      } else console.warn(`⚠️ Init: Binance keys decrypt fail for ${userId}.`);
     }
 
-    // ==== PAYPAL ====
+    // --- PAYPAL ---
     if (
       integrations.paypal &&
       integrations.paypal.apiKey &&
       integrations.paypal.apiSecret
     ) {
-      const decryptedPayPalClientId = decrypt(integrations.paypal.apiKey);
-      const decryptedPayPalClientSecret = decrypt(
-        integrations.paypal.apiSecret
-      );
-      if (decryptedPayPalClientId && decryptedPayPalClientSecret) {
-        const paypalCredentials = {
-          clientId: decryptedPayPalClientId,
-          clientSecret: decryptedPayPalClientSecret,
-        };
+      const decClientId = decrypt(integrations.paypal.apiKey),
+        decClientSecret = decrypt(integrations.paypal.apiSecret);
+
+      const testEndDate = new Date(); // Today, up to current time
+      testEndDate.setHours(23, 59, 59, 999); // End of today
+
+      const testStartDate = new Date();
+      testStartDate.setDate(testEndDate.getDate() - 30); // Go back 59 days to get 60 full days (today inclusive)
+      testStartDate.setHours(0, 0, 0, 0); // Start of that day
+
+      if (decClientId && decClientSecret) {
+        const creds = { clientId: decClientId, clientSecret: decClientSecret };
         try {
           const rawTx = await fetchPayPalTransactions(
-            paypalCredentials,
-            txStartDate,
-            txEndDate
+            creds,
+            testStartDate,
+            testEndDate
           );
-          console.log("📦 Initial PayPal Transactions fetched.");
-          let normTx = normalizePayPalTransactions(rawTx);
-          normTx = Array.isArray(normTx) ? normTx : [];
-          allTransactions.push(...normTx);
-          console.log(
-            `✅ Normalized ${normTx.length} Initial PayPal Transactions.`
-          );
-
-          const payPalBals = await fetchPayPalBalance(paypalCredentials);
-          if (Array.isArray(payPalBals)) {
-            payPalBals.forEach((bal) => {
-              if (bal && typeof bal.amount === "number" && bal.currency) {
+          const normTx = normalizePayPalTransactions(rawTx);
+          allNormalizedTransactions.push(
+            ...(Array.isArray(normTx) ? normTx : [])
+          ); // Add to main list
+          const bals = await fetchPayPalBalance(creds);
+          if (Array.isArray(bals))
+            bals.forEach((b) => {
+              if (b && typeof b.amount === "number" && b.currency)
                 collectedRawBalances.push({
-                  source: bal.source || "paypal",
-                  asset: bal.currency,
-                  amount: bal.amount,
-                  currency: bal.currency,
-                  name: `PayPal ${bal.currency}`,
+                  source: b.source || "paypal",
+                  asset: b.currency,
+                  amount: b.amount,
+                  currency: b.currency,
+                  name: `PayPal ${b.currency}`,
                 });
-              }
             });
-          } else if (
-            payPalBals &&
-            typeof payPalBals.amount === "number" &&
-            payPalBals.currency
-          ) {
-            // Handle single object case
+          else if (bals && typeof bals.amount === "number" && bals.currency)
             collectedRawBalances.push({
-              source: payPalBals.source || "paypal",
-              asset: payPalBals.currency,
-              amount: payPalBals.amount,
-              currency: payPalBals.currency,
-              name: `PayPal ${payPalBals.currency}`,
+              source: bals.source || "paypal",
+              asset: bals.currency,
+              amount: bals.amount,
+              currency: bals.currency,
+              name: `PayPal ${bals.currency}`,
             });
-          }
-          console.log(`📊 Initial PayPal balances collected.`);
-        } catch (paypalError) {
-          console.error(
-            "❌ Error processing initial PayPal data:",
-            paypalError.message,
-            paypalError.stack
+          console.log(
+            `📊 Init PayPal: ${Array.isArray(normTx) ? normTx.length : 0} Tx.`
           );
+        } catch (e) {
+          console.error("❌ Init PayPal Error:", e.message, e.stack);
         }
-      } else {
-        console.warn(
-          `⚠️ Failed to decrypt PayPal API keys for user ${userId} during initialization.`
-        );
-      }
+      } else console.warn(`⚠️ Init: PayPal keys decrypt fail for ${userId}.`);
     }
 
-    // ==== WALLETS ====
+    // --- WALLETS ---
     const wallets = integrations.wallets || {};
     if (Object.keys(wallets).length > 0) {
-      console.log("👛 Processing crypto wallets for initial data fetch.");
       for (const [coin, walletList] of Object.entries(wallets)) {
         if (!Array.isArray(walletList) || walletList.length === 0) continue;
-        console.log(`🔍 Fetching initial ${coin.toUpperCase()} wallet data.`);
         for (const wallet of walletList) {
-          if (
-            !wallet ||
-            !wallet.address ||
-            typeof wallet.address !== "string" ||
-            wallet.address.trim() === ""
-          )
-            continue;
-          const userWalletAddress = wallet.address.trim();
-          console.log(
-            `⏳ Processing ${coin.toUpperCase()} address: ${userWalletAddress.substring(
-              0,
-              10
-            )}... for initial fetch`
-          );
+          if (!wallet || !wallet.address) continue;
+          const addr = wallet.address.trim();
           try {
-            let rawWalletTx = [];
-            let rawBalNum = null;
-            let normalizedWalletTx = [];
-            const coinLower = coin.toLowerCase();
-            const coinUpper = coin.toUpperCase();
-
-            if (coinLower === "eth") {
-              rawWalletTx = await fetchEthereumTransactions(
-                userWalletAddress /*, txStartDate, txEndDate */
+            let rawTx = [],
+              balNum = null,
+              normTx = [];
+            const cL = coin.toLowerCase(),
+              cU = coin.toUpperCase();
+            if (cL === "eth") {
+              rawTx = await fetchEthereumTransactions(
+                addr /*,txStartDate,txEndDate*/
               );
-              normalizedWalletTx = normalizeEthereumTransactions(
-                rawWalletTx || [],
-                userWalletAddress
+              normTx = normalizeEthereumTransactions(rawTx || [], addr);
+            } else if (cL === "usdt") {
+              rawTx = await fetchUSDTTransactions(
+                addr /*,txStartDate,txEndDate*/
               );
-              rawBalNum = await fetchEthereumBalance(userWalletAddress);
-            } else if (coinLower === "usdt") {
-              rawWalletTx = await fetchUSDTTransactions(
-                userWalletAddress /*, txStartDate, txEndDate */
+              normTx = normalizeUSDTTransactions(rawTx || [], addr);
+            } else if (cL === "btc") {
+              rawTx = await fetchBitcoinTransactions(
+                addr /*,txStartDate,txEndDate*/
               );
-              normalizedWalletTx = normalizeUSDTTransactions(
-                rawWalletTx || [],
-                userWalletAddress
-              );
-              rawBalNum = await fetchUSDTBalance(userWalletAddress);
-            } else if (coinLower === "btc") {
-              rawWalletTx = await fetchBitcoinTransactions(
-                userWalletAddress /*, txStartDate, txEndDate */
-              );
-              normalizedWalletTx = normalizeBitcoinTransactions(
-                rawWalletTx || [],
-                userWalletAddress
-              );
-              rawBalNum = await fetchBitcoinBalance(userWalletAddress);
+              normTx = normalizeBitcoinTransactions(rawTx || [], addr);
             } else {
-              console.warn(
-                `⚠️ Unsupported wallet coin type: ${coin} in initial fetch`
-              );
+              console.warn(`Unsupported wallet: ${cU}`);
               continue;
             }
 
-            allTransactions.push(
-              ...(Array.isArray(normalizedWalletTx) ? normalizedWalletTx : [])
-            );
+            if (Array.isArray(normTx)) {
+              // Add to main list
+              allNormalizedTransactions.push(...normTx);
+            }
 
-            if (
-              rawBalNum !== null &&
-              typeof rawBalNum === "number" &&
-              !isNaN(rawBalNum)
-            ) {
+            if (cL === "eth") balNum = await fetchEthereumBalance(addr);
+            else if (cL === "usdt") balNum = await fetchUSDTBalance(addr);
+            else if (cL === "btc") balNum = await fetchBitcoinBalance(addr);
+
+            if (balNum !== null && !isNaN(balNum))
               collectedRawBalances.push({
                 source: "wallet",
-                asset: coinUpper,
-                amount: rawBalNum,
-                currency: coinUpper,
-                address: userWalletAddress,
+                asset: cU,
+                amount: balNum,
+                currency: cU,
+                address: addr,
                 name:
-                  wallet.name ||
-                  `${coinUpper} Wallet (${userWalletAddress.substring(
-                    0,
-                    6
-                  )}...)`,
+                  wallet.name || `${cU} Wallet (${addr.substring(0, 6)}...)`,
               });
-            }
-          } catch (error) {
+          } catch (e) {
             console.error(
-              `❌ Error processing initial ${coin.toUpperCase()} wallet data for ${userWalletAddress}:`,
-              error.message,
-              error.stack
+              `❌ Init ${cU} Wallet Error ${addr.substring(0, 10)}:`,
+              e.message,
+              e.stack
             );
           }
         }
       }
     }
 
-    // === CONSOLIDATE BALANCES AND STORE AS SINGLE DOCUMENT ===
-    let totalBalanceUSD = 0;
-    const balanceBreakdown = [];
-    let cryptoCurrencyIdsForPriceFetch = new Set();
-    collectedRawBalances.forEach((bal) => {
-      if (bal.currency && bal.currency !== "USD" && bal.amount > 0) {
-        const currencyUpper = bal.currency.toUpperCase();
-        if (currencyUpper === "BTC")
-          cryptoCurrencyIdsForPriceFetch.add("bitcoin");
-        else if (currencyUpper === "ETH")
-          cryptoCurrencyIdsForPriceFetch.add("ethereum");
-        else if (currencyUpper === "USDT")
-          cryptoCurrencyIdsForPriceFetch.add("tether");
+    // === CATEGORIZE TRANSACTIONS (Conditional AI Call) ===
+    let finalCategorizedTransactions = [];
+    if (allNormalizedTransactions.length > 0) {
+      const walletTransactions = [];
+      const otherPlatformTransactionsToAI = [];
+
+      allNormalizedTransactions.forEach((tx) => {
+        if (
+          tx.source === "ethereum" ||
+          tx.source === "bitcoin" ||
+          tx.source === "ethereum_erc20"
+        ) {
+          walletTransactions.push({ ...tx, category: "Crypto" });
+        } else {
+          otherPlatformTransactionsToAI.push(tx);
+        }
+      });
+      console.log(
+        `ℹ️ Init: ${walletTransactions.length} wallet transactions auto-categorized as 'Crypto'.`
+      );
+      finalCategorizedTransactions.push(...walletTransactions);
+
+      if (otherPlatformTransactionsToAI.length > 0) {
+        console.log(
+          `\nℹ️ Init: Preparing ${otherPlatformTransactionsToAI.length} non-wallet txns for AI category...`
+        );
+        const preparedTxForAI = prepareTransactionsForCategorization(
+          otherPlatformTransactionsToAI.map((tx) => ({ ...tx }))
+        );
+        if (preparedTxForAI.length > 0) {
+          try {
+            const aiResults = await categorizeTransactionsAI(preparedTxForAI);
+            const catMap = new Map(
+              aiResults.map((item) => [item.id, item.category])
+            );
+            const categorizedByAI = otherPlatformTransactionsToAI.map(
+              (origTx) => ({
+                ...origTx,
+                category: catMap.get(origTx.txId) || "Uncategorized",
+              })
+            );
+            finalCategorizedTransactions.push(...categorizedByAI);
+            console.log(
+              `👍 Init: ${categorizedByAI.length} non-wallet txns processed with AI categories.`
+            );
+          } catch (aiError) {
+            console.error(
+              "❌ Init: AI Category step failed for non-wallet txns:",
+              aiError.message
+            );
+            finalCategorizedTransactions.push(
+              ...otherPlatformTransactionsToAI.map((tx) => ({
+                ...tx,
+                category: "Uncategorized (AI Error)",
+              }))
+            );
+          }
+        } else {
+          finalCategorizedTransactions.push(
+            ...otherPlatformTransactionsToAI.map((tx) => ({
+              ...tx,
+              category: "Uncategorized",
+            }))
+          );
+        }
+      }
+      console.log(
+        `👍 Init: Total ${finalCategorizedTransactions.length} transactions after categorization process.`
+      );
+    } else console.log(`ℹ️ Init: No txns fetched to categorize.`);
+
+    // === CONSOLIDATE BALANCES (remains the same) ===
+    let totalUSD = 0;
+    const balBreakdown = [];
+    let cryptoIds = new Set();
+    collectedRawBalances.forEach((b) => {
+      if (b.currency && b.currency !== "USD" && b.amount > 0) {
+        const cU = b.currency.toUpperCase();
+        if (cU === "BTC") cryptoIds.add("bitcoin");
+        else if (cU === "ETH") cryptoIds.add("ethereum");
+        else if (cU === "USDT") cryptoIds.add("tether");
       }
     });
-    const prices = await fetchCryptoPrices(
-      Array.from(cryptoCurrencyIdsForPriceFetch)
-    );
-    console.log("💰 Initial Sync: Fetched Prices (USD):", prices);
-
+    const prices = await fetchCryptoPrices(Array.from(cryptoIds));
     for (const bal of collectedRawBalances) {
-      let usdValue = 0;
-      if (bal.currency === "USD") {
-        usdValue = bal.amount;
-      } else if (bal.currency && prices[bal.currency.toUpperCase()]) {
-        usdValue = bal.amount * prices[bal.currency.toUpperCase()];
-      } else if (bal.amount > 0 && bal.currency) {
-        console.warn(
-          `⚠️ Initial Sync: No USD price for ${bal.currency}. Balance for ${
-            bal.name || bal.asset
-          } not converted.`
-        );
-      }
-
+      let usdVal = 0;
+      if (bal.currency === "USD") usdVal = bal.amount;
+      else if (bal.currency && prices[bal.currency.toUpperCase()])
+        usdVal = bal.amount * prices[bal.currency.toUpperCase()];
+      else if (bal.amount > 0 && bal.currency)
+        console.warn(`No price for ${bal.currency}`);
       if (
         bal.amount > 0 ||
         (bal.currency === "USD" && bal.amount !== undefined)
       ) {
-        const breakdownItem = {
+        const item = {
           source: bal.source,
           name: bal.name || `${bal.source} ${bal.asset}`,
           asset: bal.asset,
           amount: bal.amount,
           currency: bal.currency,
-          usdValue: parseFloat(usdValue.toFixed(2)),
+          usdValue: parseFloat(usdVal.toFixed(2)),
         };
-        if (bal.address !== undefined) breakdownItem.address = bal.address;
-        balanceBreakdown.push(breakdownItem);
-        totalBalanceUSD += usdValue;
+        if (bal.address) item.address = bal.address;
+        balBreakdown.push(item);
+        totalUSD += usdVal;
       }
     }
-    const consolidatedBalanceData = {
-      userId: userId,
-      totalBalanceUSD: parseFloat(totalBalanceUSD.toFixed(2)),
-      breakdown: balanceBreakdown,
+    const summaryData = {
+      userId,
+      totalBalanceUSD: parseFloat(totalUSD.toFixed(2)),
+      breakdown: balBreakdown,
       retrievedAt: new Date().toISOString(),
+      updatedBy: "initialization",
     };
     if (
-      balanceBreakdown.length > 0 ||
+      balBreakdown.length > 0 ||
       collectedRawBalances.some((b) => b.amount !== undefined)
     ) {
-      const balanceDocRef = userRef.collection("balances").doc("summary");
-      await balanceDocRef.set(consolidatedBalanceData);
-      console.log(
-        `💰 Initial consolidated balance summary saved. Total USD: ${consolidatedBalanceData.totalBalanceUSD}`
-      );
-    } else console.log("ℹ️ Initial Sync: No balances to create summary.");
+      await db
+        .collection("allUserBalances")
+        .doc(userId)
+        .set(summaryData, { merge: true });
+      console.log(`💰 Init: Balance summary saved for ${userId}.`);
+    }
 
-    // === STORE ONLY NEW TRANSACTIONS ===
-    if (allTransactions.length > 0) {
-      const transactionsRef = userRef.collection("transactions");
-      const existingSnap = await transactionsRef
+    // === STORE NEW TRANSACTIONS (using 'finalCategorizedTransactions') ===
+    if (finalCategorizedTransactions.length > 0) {
+      // Check if there are any transactions after categorization attempt
+      const txCollRef = db.collection("allUserTransactions");
+      const existSnap = await txCollRef
+        .where("userId", "==", userId)
         .select("txId")
         .limit(5000)
         .get();
-      const existingIds = new Set(
-        existingSnap.docs.map((doc) => doc.data()?.txId).filter(Boolean)
+      const existIds = new Set(
+        existSnap.docs.map((d) => d.data()?.txId).filter(Boolean)
       );
-
-      const newTransactions = allTransactions.filter(
-        (tx) => tx.txId && !existingIds.has(tx.txId)
+      const newTxToSave = finalCategorizedTransactions.filter(
+        (tx) => tx.txId && !existIds.has(tx.txId)
       );
       console.log(
-        `✨ ${newTransactions.length} New Initial Transactions to Save.`
+        `✨ Init: ${newTxToSave.length} New Categorized Txns to Save.`
       );
-
-      if (newTransactions.length > 0) {
+      if (newTxToSave.length > 0) {
         const batch = db.batch();
-        newTransactions.forEach((tx) => {
-          const docRef = transactionsRef.doc();
+        newTxToSave.forEach((tx) => {
+          const docRef = txCollRef.doc();
           batch.set(docRef, {
             ...tx,
-            userId: userId,
+            userId,
             retrievedAtSaaS: new Date().toISOString(),
+            sourceProcess: "initialization",
           });
         });
         await batch.commit();
-        console.log(
-          `🧾 Initial transactions batch committed for user ${userId}.`
-        );
+        console.log(`🧾 Init: New categorized txns batch committed.`);
       }
-    } else {
-      console.log(
-        `ℹ️ No initial transactions found or processed to save for user ${userId}.`
-      );
-    }
+    } else console.log(`ℹ️ Init: No txns to save for ${userId}.`);
 
-    console.log(
-      "✅ User initialization (transactions & balances) completed for:",
-      userId
-    );
-    if (res)
-      res
-        .status(200)
-        .send(
-          `Initialization for user ${userId} completed. Fetched ${allTransactions.length} potential transactions and ${balanceBreakdown.length} balance sources.`
-        );
+    console.log("✅ User initialization (Tx & Bal) successful for:", userId);
+    if (res) res.status(200).send(`Initialization successful for ${userId}.`);
   } catch (err) {
     console.error(
       `❌ User Initialization Failed for ${userId}:`,
@@ -439,34 +413,25 @@ const initializeUserData = async (req, res) => {
 
 if (require.main === module) {
   (async () => {
-    const testUserId = "k3LLnHvMbjgGlSxtzLXl9MjB63y1"; // Use a distinct test user ID
-    console.log(
-      `Running user data initialization directly for test user: ${testUserId}`
-    );
-
+    const testUserId = "k3LLnHvMbjgGlSxtzLXl9MjB63y1"; // Using your specified testUserId
+    console.log(`Manually running user init for test user: ${testUserId}`);
     const userDocRef = db.collection("users").doc(testUserId);
     const userDocSnap = await userDocRef.get();
     if (!userDocSnap.exists) {
       console.log(
-        `Test user ${testUserId} does not exist. Creating with dummy integrations for test...`
+        `Test user ${testUserId} not found. Creating with dummy integrations...`
       );
       await userDocRef.set(
         {
           email: `${testUserId}@example.com`,
           integrations: {
-            /* Add dummy encrypted keys here if needed for test */
+            /* Add encrypted test keys here */
           },
         },
         { merge: true }
       );
-      console.log(`Dummy user ${testUserId} created/updated.`);
-    } else {
-      console.log(`Test user ${testUserId} found.`);
     }
-
-    const mockReq = { query: { userId: testUserId } }; // Simulate request
-    await initializeUserData(mockReq, null);
+    await initializeUserData({ query: { userId: testUserId } }, null);
   })();
 }
-
 module.exports = { initializeUserData };

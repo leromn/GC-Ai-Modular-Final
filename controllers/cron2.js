@@ -1,58 +1,56 @@
 // runCronJob.js
-// Assuming this file is in a 'controllers' or 'jobs' directory
-// Adjust paths based on your project structure
+const db = require("../Finnished/firebase/firebaseClient");
+const { decrypt } = require("../utils/encryption"); // Corrected path from memory
+const {
+  prepareTransactionsForCategorization,
+  categorizeTransactionsAI,
+} = require("../aiModels/arrayCategorizerGpt"); // Corrected path from memory
 
-const db = require("../Finnished/firebase/firebaseClient"); // Adjust path
-const { decrypt } = require("../utils/encryption"); // Adjust path
-
-// === FETCHERS ===
+// Fetchers
 const {
   fetchBinanceTransactions,
-} = require("../Finnished/fetchers/binanceFetcher"); // Adjust path
+} = require("../Finnished/fetchers/binanceFetcher");
 const {
   fetchPayPalTransactions,
-} = require("../Finnished/fetchers/paypalFetcher"); // Adjust path
+} = require("../Finnished/fetchers/paypalFetcher");
 const {
   fetchEthereumTransactions,
   fetchUSDTTransactions,
   fetchBitcoinTransactions,
-} = require("../Finnished/fetchers/walletFetcher"); // Adjust path
-
-// === BALANCE FETCHERS ===
+} = require("../Finnished/fetchers/walletFetcher");
+// Balance Fetchers
 const {
   fetchBinanceBalance,
-} = require("../Finnished/balanceFetchers/binanceBalanceFetcher"); // Adjust path
+} = require("../Finnished/balanceFetchers/binanceBalanceFetcher");
 const {
   fetchPayPalBalance,
-} = require("../Finnished/balanceFetchers/paypalBalanceFetcher"); // Adjust path
+} = require("../Finnished/balanceFetchers/paypalBalanceFetcher");
 const {
   fetchEthereumBalance,
   fetchUSDTBalance,
   fetchBitcoinBalance,
   fetchCryptoPrices,
-} = require("../Finnished/balanceFetchers/walletBalanceFetcher"); // Adjust path
-
-// === NORMALISERS ===
+} = require("../Finnished/balanceFetchers/walletBalanceFetcher");
+// Normalizers
 const {
   normalizeBinanceTransactions,
-} = require("../Finnished/normalizers/binanceNormalizer"); // Adjust path
+} = require("../Finnished/normalizers/binanceNormalizer");
 const {
   normalizePayPalTransactions,
-} = require("../Finnished/normalizers/paypalNormalizer"); // Adjust path
+} = require("../Finnished/normalizers/paypalNormalizer");
 const {
   normalizeEthereumTransactions,
   normalizeUSDTTransactions,
   normalizeBitcoinTransactions,
-} = require("../Finnished/normalizers/walletNormalizer"); // Adjust path
+} = require("../Finnished/normalizers/walletNormalizer");
 
 const runCronJob = async (req, res) => {
   const userId =
-    req?.query?.userId || req?.body?.userId || "k3LLnHvMbjgGlSxtzLXl9MjB63y1"; // Example fallback
+    req?.query?.userId || req?.body?.userId || "k3LLnHvMbjgGlSxtzLXl9MjB63y1"; // Test User ID
   console.log("🚀 Daily Cron job started for user:", userId);
 
   try {
-    const userRef = db.collection("users").doc(userId);
-    const userSnap = await userRef.get();
+    const userSnap = await db.collection("users").doc(userId).get();
     if (!userSnap.exists) {
       console.error(`❌ User ${userId} not found for daily cron.`);
       if (res) res.status(404).send("User not found");
@@ -62,24 +60,21 @@ const runCronJob = async (req, res) => {
     const integrations = userData?.integrations || {};
     console.log("🔗 User integrations fetched for daily cron.");
 
-    let allTransactions = [];
+    let allNormalizedTransactions = []; // Store all normalized transactions before splitting
     let collectedRawBalances = [];
 
-    // === Determine Date Range for Transactions (Daily Cron: Previous Day Only) ===
     const today = new Date();
     const startDate = new Date(today);
     startDate.setDate(today.getDate() - 1);
     startDate.setHours(0, 0, 0, 0);
-
     const endDate = new Date(today);
     endDate.setDate(today.getDate() - 1);
     endDate.setHours(23, 59, 59, 999);
-
     console.log(
       `🗓️ Daily Transaction Fetch Range: ${startDate.toISOString()} to ${endDate.toISOString()}`
     );
 
-    // ==== BINANCE ====
+    // --- BINANCE ---
     if (
       integrations.binance &&
       integrations.binance.apiKey &&
@@ -87,362 +82,360 @@ const runCronJob = async (req, res) => {
     ) {
       const decryptedApiKey = decrypt(integrations.binance.apiKey);
       const decryptedApiSecret = decrypt(integrations.binance.apiSecret);
-
       if (decryptedApiKey && decryptedApiSecret) {
-        const binanceCredentials = {
+        const credentials = {
           apiKey: decryptedApiKey,
           apiSecret: decryptedApiSecret,
         };
         try {
-          const rawBinanceTxData = await fetchBinanceTransactions(
-            binanceCredentials,
+          const rawTx = await fetchBinanceTransactions(
+            credentials,
             startDate,
             endDate
           );
-          console.log("📦 Daily Binance Transactions Data fetched.");
-          const normalizedBinanceTx = normalizeBinanceTransactions(
-            rawBinanceTxData || { deposits: [], withdrawals: [] }
+          const normTx = normalizeBinanceTransactions(
+            rawTx || { deposits: [], withdrawals: [] }
           );
-          allTransactions.push(...normalizedBinanceTx);
-          console.log(
-            `✅ Normalized ${normalizedBinanceTx.length} Daily Binance Transactions.`
-          );
-
-          const binanceBals = await fetchBinanceBalance(binanceCredentials);
-          if (Array.isArray(binanceBals)) {
-            binanceBals.forEach((bal) =>
+          allNormalizedTransactions.push(...normTx); // Add to the main list
+          const bals = await fetchBinanceBalance(credentials);
+          if (Array.isArray(bals))
+            bals.forEach((b) =>
               collectedRawBalances.push({
-                source: bal.source || "binance", // Ensure source is set
-                asset: bal.asset,
-                amount: parseFloat(bal.free || 0) + parseFloat(bal.locked || 0),
-                currency: bal.asset,
-                name: `Binance ${bal.asset}`,
+                source: b.source || "binance",
+                asset: b.asset,
+                amount: parseFloat(b.free || 0) + parseFloat(b.locked || 0),
+                currency: b.asset,
+                name: `Binance ${b.asset}`,
               })
             );
-          }
           console.log(
-            `📊 ${
-              binanceBals ? binanceBals.length : 0
-            } Daily Binance balances collected.`
+            `📊 Daily Binance: ${normTx.length} Tx, ${
+              bals?.length || 0
+            } Bal types.`
           );
-        } catch (binanceError) {
-          console.error(
-            "❌ Error processing Daily Binance data:",
-            binanceError.message,
-            binanceError.stack
-          );
+        } catch (e) {
+          console.error("❌ Daily Binance Error:", e.message, e.stack);
         }
-      } else {
-        console.warn(
-          `⚠️ Failed to decrypt Binance API keys for user ${userId} in daily cron. Skipping Binance.`
-        );
-      }
-    } else if (integrations.binance) {
-      console.log(
-        "ℹ️ Daily cron: Binance integration configured but API keys are missing or not in expected encrypted format."
-      );
+      } else
+        console.warn(`⚠️ Daily Cron: Binance keys decrypt fail for ${userId}.`);
     }
 
-    // ==== PAYPAL ====
+    // --- PAYPAL ---
     if (
       integrations.paypal &&
       integrations.paypal.apiKey &&
       integrations.paypal.apiSecret
     ) {
-      const decryptedPayPalClientId = decrypt(integrations.paypal.apiKey);
-      const decryptedPayPalClientSecret = decrypt(
-        integrations.paypal.apiSecret
-      );
+      const decClientId = decrypt(integrations.paypal.apiKey);
+      const decClientSecret = decrypt(integrations.paypal.apiSecret);
 
-      if (decryptedPayPalClientId && decryptedPayPalClientSecret) {
-        const paypalCredentials = {
-          clientId: decryptedPayPalClientId,
-          clientSecret: decryptedPayPalClientSecret,
-        };
+      const PDtestEndDate = new Date(); // Current date and time (implicitly "now")
+
+      const PDtestStartDate = new Date();
+      PDtestStartDate.setTime(PDtestEndDate.getTime() - 24 * 60 * 60 * 1000);
+
+      if (decClientId && decClientSecret) {
+        const creds = { clientId: decClientId, clientSecret: decClientSecret };
         try {
           const rawTx = await fetchPayPalTransactions(
-            paypalCredentials,
-            startDate,
-            endDate
+            creds,
+            PDtestStartDate,
+            PDtestEndDate
           );
-          console.log("📦 Daily PayPal Transactions fetched.");
-          let normTx = normalizePayPalTransactions(rawTx);
-          normTx = Array.isArray(normTx) ? normTx : [];
-          allTransactions.push(...normTx);
-          console.log(
-            `✅ Normalized ${normTx.length} Daily PayPal Transactions.`
-          );
-
-          const payPalBals = await fetchPayPalBalance(paypalCredentials); // fetchPayPalBalance returns array or null
-          if (Array.isArray(payPalBals)) {
-            payPalBals.forEach((bal) => {
-              if (bal && typeof bal.amount === "number" && bal.currency) {
+          const normTx = normalizePayPalTransactions(rawTx);
+          allNormalizedTransactions.push(
+            ...(Array.isArray(normTx) ? normTx : [])
+          ); // Add to the main list
+          const bals = await fetchPayPalBalance(creds);
+          if (Array.isArray(bals))
+            bals.forEach((b) => {
+              if (b && typeof b.amount === "number" && b.currency)
                 collectedRawBalances.push({
-                  source: bal.source || "paypal", // Ensure source is set
-                  asset: bal.currency,
-                  amount: bal.amount,
-                  currency: bal.currency,
-                  name: `PayPal ${bal.currency}`,
+                  source: b.source || "paypal",
+                  asset: b.currency,
+                  amount: b.amount,
+                  currency: b.currency,
+                  name: `PayPal ${b.currency}`,
                 });
-              }
             });
-          } else if (
-            payPalBals &&
-            typeof payPalBals.amount === "number" &&
-            payPalBals.currency
-          ) {
-            // Handle single object case
+          else if (bals && typeof bals.amount === "number" && bals.currency)
             collectedRawBalances.push({
-              source: payPalBals.source || "paypal",
-              asset: payPalBals.currency,
-              amount: payPalBals.amount,
-              currency: payPalBals.currency,
-              name: `PayPal ${payPalBals.currency}`,
+              source: bals.source || "paypal",
+              asset: bals.currency,
+              amount: bals.amount,
+              currency: bals.currency,
+              name: `PayPal ${bals.currency}`,
             });
-          }
-          console.log(`📊 Daily PayPal balances collected.`);
-        } catch (paypalError) {
-          console.error(
-            "❌ Error processing Daily PayPal data:",
-            paypalError.message,
-            paypalError.stack
+          console.log(
+            `📊 Daily PayPal: ${Array.isArray(normTx) ? normTx.length : 0} Tx.`
           );
+        } catch (e) {
+          console.error("❌ Daily PayPal Error:", e.message, e.stack);
         }
-      } else {
-        console.warn(
-          `⚠️ Failed to decrypt PayPal API keys for user ${userId} in daily cron. Skipping PayPal.`
-        );
-      }
-    } else if (integrations.paypal) {
-      console.log(
-        "ℹ️ Daily cron: PayPal integration configured but API keys are missing or not in expected encrypted format."
-      );
+      } else
+        console.warn(`⚠️ Daily Cron: PayPal keys decrypt fail for ${userId}.`);
     }
 
-    // ==== WALLETS ====
+    // --- WALLETS ---
     const wallets = integrations.wallets || {};
     if (Object.keys(wallets).length > 0) {
-      console.log("👛 Processing crypto wallets for daily cron.");
       for (const [coin, walletList] of Object.entries(wallets)) {
         if (!Array.isArray(walletList) || walletList.length === 0) continue;
-        console.log(`🔍 Fetching daily ${coin.toUpperCase()} wallet data.`);
         for (const wallet of walletList) {
-          if (
-            !wallet ||
-            !wallet.address ||
-            typeof wallet.address !== "string" ||
-            wallet.address.trim() === ""
-          )
-            continue;
+          if (!wallet || !wallet.address) continue;
           const userWalletAddress = wallet.address.trim();
-          console.log(
-            `⏳ Processing ${coin.toUpperCase()} address: ${userWalletAddress.substring(
-              0,
-              10
-            )}... for daily cron`
-          );
           try {
-            let rawWalletTx = [];
-            let rawBalNum = null;
-            let normalizedWalletTx = [];
-            const coinLower = coin.toLowerCase();
-            const coinUpper = coin.toUpperCase();
-
-            if (coinLower === "eth") {
-              rawWalletTx = await fetchEthereumTransactions(
-                userWalletAddress /*, startDate, endDate */
-              );
-              normalizedWalletTx = normalizeEthereumTransactions(
-                rawWalletTx || [],
+            let rawTx = [],
+              balNum = null,
+              normTx = [];
+            const cL = coin.toLowerCase(),
+              cU = coin.toUpperCase();
+            if (cL === "eth") {
+              rawTx = await fetchEthereumTransactions(userWalletAddress);
+              normTx = normalizeEthereumTransactions(
+                rawTx || [],
                 userWalletAddress
               );
-              rawBalNum = await fetchEthereumBalance(userWalletAddress);
-            } else if (coinLower === "usdt") {
-              rawWalletTx = await fetchUSDTTransactions(
-                userWalletAddress /*, startDate, endDate */
-              );
-              normalizedWalletTx = normalizeUSDTTransactions(
-                rawWalletTx || [],
+            } else if (cL === "usdt") {
+              rawTx = await fetchUSDTTransactions(userWalletAddress);
+              normTx = normalizeUSDTTransactions(
+                rawTx || [],
                 userWalletAddress
               );
-              rawBalNum = await fetchUSDTBalance(userWalletAddress);
-            } else if (coinLower === "btc") {
-              rawWalletTx = await fetchBitcoinTransactions(
-                userWalletAddress /*, startDate, endDate */
-              );
-              normalizedWalletTx = normalizeBitcoinTransactions(
-                rawWalletTx || [],
+            } else if (cL === "btc") {
+              rawTx = await fetchBitcoinTransactions(userWalletAddress);
+              normTx = normalizeBitcoinTransactions(
+                rawTx || [],
                 userWalletAddress
               );
-              rawBalNum = await fetchBitcoinBalance(userWalletAddress);
             } else {
-              console.warn(
-                `⚠️ Unsupported wallet coin type: ${coin} in daily cron`
-              );
+              console.warn(`Unsupported wallet: ${cU}`);
               continue;
             }
 
-            allTransactions.push(
-              ...(Array.isArray(normalizedWalletTx) ? normalizedWalletTx : [])
-            );
+            // Add to the main list (they will be identified by source later)
+            if (Array.isArray(normTx)) {
+              allNormalizedTransactions.push(...normTx);
+            }
 
-            if (
-              rawBalNum !== null &&
-              typeof rawBalNum === "number" &&
-              !isNaN(rawBalNum)
-            ) {
+            // Balances are fetched as usual
+            if (cL === "eth")
+              balNum = await fetchEthereumBalance(userWalletAddress);
+            else if (cL === "usdt")
+              balNum = await fetchUSDTBalance(userWalletAddress);
+            else if (cL === "btc")
+              balNum = await fetchBitcoinBalance(userWalletAddress);
+
+            if (balNum !== null && !isNaN(balNum))
               collectedRawBalances.push({
                 source: "wallet",
-                asset: coinUpper,
-                amount: rawBalNum,
-                currency: coinUpper,
+                asset: cU,
+                amount: balNum,
+                currency: cU,
                 address: userWalletAddress,
                 name:
                   wallet.name ||
-                  `${coinUpper} Wallet (${userWalletAddress.substring(
-                    0,
-                    6
-                  )}...)`,
+                  `${cU} Wallet (${userWalletAddress.substring(0, 6)}...)`,
               });
-            }
-          } catch (error) {
+          } catch (e) {
             console.error(
-              `❌ Error processing daily ${coin.toUpperCase()} wallet ${userWalletAddress.substring(
+              `❌ Daily ${coin.toUpperCase()} Wallet Error ${userWalletAddress.substring(
                 0,
                 10
-              )}...:`,
-              error.message,
-              error.stack
+              )}:`,
+              e.message,
+              e.stack
             );
           }
         }
       }
     }
 
-    // === CONSOLIDATE BALANCES AND STORE AS SINGLE DOCUMENT ===
+    // === CATEGORIZE TRANSACTIONS (Conditional AI Call) ===
+    let finalCategorizedTransactions = [];
+    if (allNormalizedTransactions.length > 0) {
+      const walletTransactions = [];
+      const otherPlatformTransactionsToAI = [];
+
+      // Split transactions based on their source (assuming normalizers add a 'source' field)
+      allNormalizedTransactions.forEach((tx) => {
+        // Wallet sources from normalizers: 'ethereum', 'bitcoin', 'ethereum_erc20'
+        if (
+          tx.source === "ethereum" ||
+          tx.source === "bitcoin" ||
+          tx.source === "ethereum_erc20"
+        ) {
+          walletTransactions.push({ ...tx, category: "Crypto" }); // Assign 'Crypto' category directly
+        } else {
+          otherPlatformTransactionsToAI.push(tx); // These will go to AI
+        }
+      });
+
+      console.log(
+        `ℹ️ Daily Cron: ${walletTransactions.length} wallet transactions auto-categorized as 'Crypto'.`
+      );
+      finalCategorizedTransactions.push(...walletTransactions);
+
+      if (otherPlatformTransactionsToAI.length > 0) {
+        console.log(
+          `\nℹ️ Daily Cron: Preparing ${otherPlatformTransactionsToAI.length} non-wallet txns for AI category...`
+        );
+        const preparedTxForAI = prepareTransactionsForCategorization(
+          otherPlatformTransactionsToAI.map((tx) => ({ ...tx }))
+        );
+
+        if (preparedTxForAI.length > 0) {
+          try {
+            const aiCategorizedResults = await categorizeTransactionsAI(
+              preparedTxForAI
+            );
+            const categoryMap = new Map(
+              aiCategorizedResults.map((item) => [item.id, item.category])
+            );
+
+            const categorizedByAI = otherPlatformTransactionsToAI.map(
+              (originalTx) => ({
+                ...originalTx,
+                category: categoryMap.get(originalTx.txId) || "Uncategorized",
+              })
+            );
+            finalCategorizedTransactions.push(...categorizedByAI);
+            console.log(
+              `👍 Daily Cron: ${categorizedByAI.length} non-wallet txns processed with AI categories.`
+            );
+          } catch (aiError) {
+            console.error(
+              "❌ Daily Cron: AI Category step failed for non-wallet txns:",
+              aiError.message
+            );
+            // Add non-wallet transactions with an error category if AI fails
+            finalCategorizedTransactions.push(
+              ...otherPlatformTransactionsToAI.map((tx) => ({
+                ...tx,
+                category: "Uncategorized (AI Error)",
+              }))
+            );
+          }
+        } else {
+          // If preparation resulted in no transactions for AI, add them back without AI category (or with a default)
+          finalCategorizedTransactions.push(
+            ...otherPlatformTransactionsToAI.map((tx) => ({
+              ...tx,
+              category: "Uncategorized",
+            }))
+          );
+        }
+      }
+      console.log(
+        `👍 Daily Cron: Total ${finalCategorizedTransactions.length} transactions after categorization process.`
+      );
+    } else {
+      console.log("ℹ️ Daily Cron: No transactions fetched to categorize.");
+    }
+
+    // === CONSOLIDATE BALANCES (remains the same) ===
     let totalBalanceUSD = 0;
     const balanceBreakdown = [];
-    let cryptoCurrencyIdsForPriceFetch = new Set();
-    collectedRawBalances.forEach((bal) => {
-      if (bal.currency && bal.currency !== "USD" && bal.amount > 0) {
-        // Check bal.currency exists
-        const currencyUpper = bal.currency.toUpperCase();
-        if (currencyUpper === "BTC")
-          cryptoCurrencyIdsForPriceFetch.add("bitcoin");
-        else if (currencyUpper === "ETH")
-          cryptoCurrencyIdsForPriceFetch.add("ethereum");
-        else if (currencyUpper === "USDT")
-          cryptoCurrencyIdsForPriceFetch.add("tether");
-        // Add more mappings for other CoinGecko IDs if necessary for other Binance assets
-        // else cryptoCurrencyIdsForPriceFetch.add(currencyUpper.toLowerCase()); // Example, needs careful mapping
+    let cryptoIds = new Set();
+    collectedRawBalances.forEach((b) => {
+      if (b.currency && b.currency !== "USD" && b.amount > 0) {
+        const cU = b.currency.toUpperCase();
+        if (cU === "BTC") cryptoIds.add("bitcoin");
+        else if (cU === "ETH") cryptoIds.add("ethereum");
+        else if (cU === "USDT") cryptoIds.add("tether");
       }
     });
-
-    const prices = await fetchCryptoPrices(
-      Array.from(cryptoCurrencyIdsForPriceFetch)
-    );
-    console.log("💰 Daily Cron: Fetched Prices (USD):", prices);
-
+    const prices = await fetchCryptoPrices(Array.from(cryptoIds));
     for (const bal of collectedRawBalances) {
-      let usdValue = 0;
-      if (bal.currency === "USD") {
-        usdValue = bal.amount;
-      } else if (bal.currency && prices[bal.currency.toUpperCase()]) {
-        // Check bal.currency and price
-        usdValue = bal.amount * prices[bal.currency.toUpperCase()];
-      } else if (bal.amount > 0 && bal.currency) {
-        // Only warn if amount > 0 and currency exists
-        console.warn(
-          `⚠️ Daily cron: No USD price for ${bal.currency}. Balance for ${
-            bal.name || bal.asset
-          } not converted.`
-        );
-      }
-
+      let usdVal = 0;
+      if (bal.currency === "USD") usdVal = bal.amount;
+      else if (bal.currency && prices[bal.currency.toUpperCase()])
+        usdVal = bal.amount * prices[bal.currency.toUpperCase()];
+      else if (bal.amount > 0 && bal.currency)
+        console.warn(`No price for ${bal.currency}`);
       if (
         bal.amount > 0 ||
         (bal.currency === "USD" && bal.amount !== undefined)
       ) {
-        const breakdownItem = {
+        const item = {
           source: bal.source,
           name: bal.name || `${bal.source} ${bal.asset}`,
           asset: bal.asset,
           amount: bal.amount,
           currency: bal.currency,
-          usdValue: parseFloat(usdValue.toFixed(2)),
+          usdValue: parseFloat(usdVal.toFixed(2)),
         };
-        if (bal.address !== undefined) breakdownItem.address = bal.address;
-        balanceBreakdown.push(breakdownItem);
-        totalBalanceUSD += usdValue;
+        if (bal.address) item.address = bal.address;
+        balanceBreakdown.push(item);
+        totalBalanceUSD += usdVal;
       }
     }
-    const consolidatedBalanceData = {
-      userId: userId,
+    const summaryData = {
+      userId,
       totalBalanceUSD: parseFloat(totalBalanceUSD.toFixed(2)),
       breakdown: balanceBreakdown,
       retrievedAt: new Date().toISOString(),
+      updatedBy: "dailyCron",
     };
     if (
       balanceBreakdown.length > 0 ||
       collectedRawBalances.some((b) => b.amount !== undefined)
     ) {
-      // Save even if total is 0 but balances were processed
-      const balanceDocRef = userRef.collection("balances").doc("summary");
-      await balanceDocRef.set(consolidatedBalanceData);
-      console.log(
-        `💰 Daily cron: Consolidated balance summary saved. Total USD: ${consolidatedBalanceData.totalBalanceUSD}`
-      );
-    } else console.log("ℹ️ Daily cron: No balances to create summary.");
+      await db
+        .collection("allUserBalances")
+        .doc(userId)
+        .set(summaryData, { merge: true });
+      console.log(`💰 Daily Cron: Balance summary saved for ${userId}.`);
+    }
 
-    // === STORE ONLY NEW TRANSACTIONS to /transactions ===
-    const transactionsRef = userRef.collection("transactions");
-    const existingSnap = await transactionsRef.select("txId").limit(5000).get();
-    const existingIds = new Set(
-      existingSnap.docs.map((doc) => doc.data()?.txId).filter(Boolean)
+    // === STORE NEW TRANSACTIONS (using 'finalCategorizedTransactions') ===
+    const txCollRef = db.collection("allUserTransactions");
+    const existSnap = await txCollRef
+      .where("userId", "==", userId)
+      .select("txId")
+      .limit(5000)
+      .get();
+    const existIds = new Set(
+      existSnap.docs.map((d) => d.data()?.txId).filter(Boolean)
     );
-
-    const newTransactions = allTransactions.filter(
-      (tx) => tx.txId && !existingIds.has(tx.txId)
-    );
+    const newTxToSave = finalCategorizedTransactions.filter(
+      (tx) => tx.txId && !existIds.has(tx.txId)
+    ); // Use final list
     console.log(
-      `✨ Daily cron: ${newTransactions.length} New Transactions to Save.`
+      `✨ Daily Cron: ${newTxToSave.length} New Categorized Txns to Save.`
     );
-    if (newTransactions.length > 0) {
+    if (newTxToSave.length > 0) {
       const batch = db.batch();
-      newTransactions.forEach((tx) => {
-        const docRef = transactionsRef.doc();
+      newTxToSave.forEach((tx) => {
+        const docRef = txCollRef.doc();
         batch.set(docRef, {
           ...tx,
-          userId: userId,
+          userId,
           retrievedAtSaaS: new Date().toISOString(),
+          sourceProcess: "dailyCron",
         });
       });
       await batch.commit();
-      console.log(`🧾 Daily cron: New transactions batch committed.`);
+      console.log(`🧾 Daily Cron: New categorized txns batch committed.`);
     }
 
-    console.log("✅ Daily Cron job executed successfully for user:", userId);
-    if (res)
-      res
-        .status(200)
-        .send(`Daily Cron job executed successfully for user ${userId}`);
+    console.log("✅ Daily Cron job successful for user:", userId);
+    if (res) res.status(200).send(`Daily Cron successful for ${userId}`);
   } catch (err) {
     console.error(
-      "❌ Daily Cron Job Failed Overall for user " + userId + ":",
+      `❌ Daily Cron Overall Error for ${userId}:`,
       err.message,
       err.stack
     );
-    if (res) res.status(500).send("Daily Cron job failed");
+    if (res) res.status(500).send("Daily Cron failed");
   }
 };
 
 if (require.main === module) {
   (async () => {
-    const testUserId = "k3LLnHvMbjgGlSxtzLXl9MjB63y1";
-    console.log(`Running daily cron job directly for test user: ${testUserId}`);
-    const mockReq = { query: { userId: testUserId } }; // Simulate request object
-    await runCronJob(mockReq, null);
+    const testUserId = "k3LLnHvMbjgGlSxtzLXl9MjB63y1"; // Using your specified testUserId
+    console.log(`Manually running daily cron for test user: ${testUserId}`);
+    await runCronJob({ query: { userId: testUserId } }, null);
   })();
 }
-
 module.exports = { runCronJob };
