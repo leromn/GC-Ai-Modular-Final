@@ -1,5 +1,7 @@
-const OPENAI_API_KEY =
-  "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";
+require("dotenv").config();
+
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+
 const API_URL = "https://api.openai.com/v1/chat/completions";
 // services/categorizeTransactions.js
 const axios = require("axios");
