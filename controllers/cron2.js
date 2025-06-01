@@ -5,7 +5,6 @@ const {
   prepareTransactionsForCategorization,
   categorizeTransactionsAI,
 } = require("../aiModels/arrayCategorizerGpt"); // Corrected path from memory
-
 // Fetchers
 const {
   fetchBinanceTransactions,
@@ -44,34 +43,34 @@ const {
   normalizeBitcoinTransactions,
 } = require("../Finnished/normalizers/walletNormalizer");
 
-const runCronJob = async (req, res) => {
-  const userId =
-    req?.query?.userId || req?.body?.userId || "k3LLnHvMbjgGlSxtzLXl9MjB63y1"; // Test User ID
-  console.log("🚀 Daily Cron job started for user:", userId);
-
+/**
+ * Processes data for a single user: fetches transactions, balances, categorizes, and saves.
+ * @param {string} userId - The ID of the user to process.
+ */
+async function processUserDataForDailyCron(userId) {
+  console.log(`\n🚀 Starting daily data processing for user: ${userId}`);
   try {
     const userSnap = await db.collection("users").doc(userId).get();
     if (!userSnap.exists) {
-      console.error(`❌ User ${userId} not found for daily cron.`);
-      if (res) res.status(404).send("User not found");
-      return;
+      console.error(`❌ User ${userId} not found. Skipping.`);
+      return; // Skip this user
     }
     const userData = userSnap.data();
     const integrations = userData?.integrations || {};
-    console.log("🔗 User integrations fetched for daily cron.");
+    console.log(`🔗 User integrations fetched for ${userId}.`);
 
-    let allNormalizedTransactions = []; // Store all normalized transactions before splitting
+    let allNormalizedTransactions = [];
     let collectedRawBalances = [];
 
     const today = new Date();
-    const startDate = new Date(today);
+    const startDate = new Date(today); // Previous day start
     startDate.setDate(today.getDate() - 1);
     startDate.setHours(0, 0, 0, 0);
-    const endDate = new Date(today);
+    const endDate = new Date(today); // Previous day end
     endDate.setDate(today.getDate() - 1);
     endDate.setHours(23, 59, 59, 999);
     console.log(
-      `🗓️ Daily Transaction Fetch Range: ${startDate.toISOString()} to ${endDate.toISOString()}`
+      `🗓️ Daily Tx Fetch Range for ${userId}: ${startDate.toISOString()} to ${endDate.toISOString()}`
     );
 
     // --- BINANCE ---
@@ -96,7 +95,7 @@ const runCronJob = async (req, res) => {
           const normTx = normalizeBinanceTransactions(
             rawTx || { deposits: [], withdrawals: [] }
           );
-          allNormalizedTransactions.push(...normTx); // Add to the main list
+          allNormalizedTransactions.push(...normTx);
           const bals = await fetchBinanceBalance(credentials);
           if (Array.isArray(bals))
             bals.forEach((b) =>
@@ -109,18 +108,22 @@ const runCronJob = async (req, res) => {
               })
             );
           console.log(
-            `📊 Daily Binance: ${normTx.length} Tx, ${
+            `📊 Binance (User ${userId}): ${normTx.length} Tx, ${
               bals?.length || 0
             } Bal types.`
           );
         } catch (e) {
-          console.error("❌ Daily Binance Error:", e.message, e.stack);
+          console.error(
+            `❌ Binance Error (User ${userId}):`,
+            e.message,
+            e.stack
+          );
         }
-      } else
-        console.warn(`⚠️ Daily Cron: Binance keys decrypt fail for ${userId}.`);
+      } else console.warn(`⚠️ Binance keys decrypt fail for ${userId}.`);
     }
 
     // --- PAYPAL ---
+    // Using 'startDate' and 'endDate' for previous day as defined above
     if (
       integrations.paypal &&
       integrations.paypal.apiKey &&
@@ -128,24 +131,18 @@ const runCronJob = async (req, res) => {
     ) {
       const decClientId = decrypt(integrations.paypal.apiKey);
       const decClientSecret = decrypt(integrations.paypal.apiSecret);
-
-      const PDtestEndDate = new Date(); // Current date and time (implicitly "now")
-
-      const PDtestStartDate = new Date();
-      PDtestStartDate.setTime(PDtestEndDate.getTime() - 24 * 60 * 60 * 1000);
-
       if (decClientId && decClientSecret) {
         const creds = { clientId: decClientId, clientSecret: decClientSecret };
         try {
           const rawTx = await fetchPayPalTransactions(
             creds,
-            PDtestStartDate,
-            PDtestEndDate
-          );
+            startDate,
+            endDate
+          ); // Use defined startDate, endDate
           const normTx = normalizePayPalTransactions(rawTx);
           allNormalizedTransactions.push(
             ...(Array.isArray(normTx) ? normTx : [])
-          ); // Add to the main list
+          );
           const bals = await fetchPayPalBalance(creds);
           if (Array.isArray(bals))
             bals.forEach((b) => {
@@ -167,13 +164,18 @@ const runCronJob = async (req, res) => {
               name: `PayPal ${bals.currency}`,
             });
           console.log(
-            `📊 Daily PayPal: ${Array.isArray(normTx) ? normTx.length : 0} Tx.`
+            `📊 PayPal (User ${userId}): ${
+              Array.isArray(normTx) ? normTx.length : 0
+            } Tx.`
           );
         } catch (e) {
-          console.error("❌ Daily PayPal Error:", e.message, e.stack);
+          console.error(
+            `❌ PayPal Error (User ${userId}):`,
+            e.message,
+            e.stack
+          );
         }
-      } else
-        console.warn(`⚠️ Daily Cron: PayPal keys decrypt fail for ${userId}.`);
+      } else console.warn(`⚠️ PayPal keys decrypt fail for ${userId}.`);
     }
 
     // --- WALLETS ---
@@ -182,7 +184,13 @@ const runCronJob = async (req, res) => {
       for (const [coin, walletList] of Object.entries(wallets)) {
         if (!Array.isArray(walletList) || walletList.length === 0) continue;
         for (const wallet of walletList) {
-          if (!wallet || !wallet.address) continue;
+          if (
+            !wallet ||
+            !wallet.address ||
+            typeof wallet.address !== "string" ||
+            wallet.address.trim() === ""
+          )
+            continue;
           const userWalletAddress = wallet.address.trim();
           try {
             let rawTx = [],
@@ -190,42 +198,34 @@ const runCronJob = async (req, res) => {
               normTx = [];
             const cL = coin.toLowerCase(),
               cU = coin.toUpperCase();
+            // Wallet fetchers currently fetch "recent". For precise "previous day", they'd need date params.
             if (cL === "eth") {
               rawTx = await fetchEthereumTransactions(userWalletAddress);
               normTx = normalizeEthereumTransactions(
                 rawTx || [],
                 userWalletAddress
               );
+              balNum = await fetchEthereumBalance(userWalletAddress);
             } else if (cL === "usdt") {
               rawTx = await fetchUSDTTransactions(userWalletAddress);
               normTx = normalizeUSDTTransactions(
                 rawTx || [],
                 userWalletAddress
               );
+              balNum = await fetchUSDTBalance(userWalletAddress);
             } else if (cL === "btc") {
               rawTx = await fetchBitcoinTransactions(userWalletAddress);
               normTx = normalizeBitcoinTransactions(
                 rawTx || [],
                 userWalletAddress
               );
+              balNum = await fetchBitcoinBalance(userWalletAddress);
             } else {
-              console.warn(`Unsupported wallet: ${cU}`);
+              console.warn(`Unsupported wallet: ${cU} for user ${userId}`);
               continue;
             }
-
-            // Add to the main list (they will be identified by source later)
-            if (Array.isArray(normTx)) {
+            if (Array.isArray(normTx))
               allNormalizedTransactions.push(...normTx);
-            }
-
-            // Balances are fetched as usual
-            if (cL === "eth")
-              balNum = await fetchEthereumBalance(userWalletAddress);
-            else if (cL === "usdt")
-              balNum = await fetchUSDTBalance(userWalletAddress);
-            else if (cL === "btc")
-              balNum = await fetchBitcoinBalance(userWalletAddress);
-
             if (balNum !== null && !isNaN(balNum))
               collectedRawBalances.push({
                 source: "wallet",
@@ -239,10 +239,10 @@ const runCronJob = async (req, res) => {
               });
           } catch (e) {
             console.error(
-              `❌ Daily ${coin.toUpperCase()} Wallet Error ${userWalletAddress.substring(
+              `❌ ${cU} Wallet Error ${userWalletAddress.substring(
                 0,
                 10
-              )}:`,
+              )} (User ${userId}):`,
               e.message,
               e.stack
             );
@@ -251,48 +251,43 @@ const runCronJob = async (req, res) => {
       }
     }
 
-    // === CATEGORIZE TRANSACTIONS (Conditional AI Call) ===
+    // === CATEGORIZE TRANSACTIONS ===
     let finalCategorizedTransactions = [];
     if (allNormalizedTransactions.length > 0) {
       const walletTransactions = [];
       const otherPlatformTransactionsToAI = [];
-
-      // Split transactions based on their source (assuming normalizers add a 'source' field)
       allNormalizedTransactions.forEach((tx) => {
-        // Wallet sources from normalizers: 'ethereum', 'bitcoin', 'ethereum_erc20'
         if (
           tx.source === "ethereum" ||
           tx.source === "bitcoin" ||
           tx.source === "ethereum_erc20"
         ) {
-          walletTransactions.push({ ...tx, category: "Crypto" }); // Assign 'Crypto' category directly
+          walletTransactions.push({ ...tx, category: "Crypto Transfer" }); // More specific default for wallets
         } else {
-          otherPlatformTransactionsToAI.push(tx); // These will go to AI
+          otherPlatformTransactionsToAI.push(tx);
         }
       });
-
-      console.log(
-        `ℹ️ Daily Cron: ${walletTransactions.length} wallet transactions auto-categorized as 'Crypto'.`
-      );
       finalCategorizedTransactions.push(...walletTransactions);
+      console.log(
+        `ℹ️ ${walletTransactions.length} wallet txns auto-categorized (User ${userId}).`
+      );
 
       if (otherPlatformTransactionsToAI.length > 0) {
         console.log(
-          `\nℹ️ Daily Cron: Preparing ${otherPlatformTransactionsToAI.length} non-wallet txns for AI category...`
+          `\nℹ️ Preparing ${otherPlatformTransactionsToAI.length} non-wallet txns for AI (User ${userId})...`
         );
         const preparedTxForAI = prepareTransactionsForCategorization(
-          otherPlatformTransactionsToAI.map((tx) => ({ ...tx }))
-        );
-
+          otherPlatformTransactionsToAI
+        ); // No need to map here, func handles it
         if (preparedTxForAI.length > 0) {
           try {
             const aiCategorizedResults = await categorizeTransactionsAI(
               preparedTxForAI
             );
+            // aiCategorizedResults is assumed to be an array of {id, category}
             const categoryMap = new Map(
               aiCategorizedResults.map((item) => [item.id, item.category])
             );
-
             const categorizedByAI = otherPlatformTransactionsToAI.map(
               (originalTx) => ({
                 ...originalTx,
@@ -301,14 +296,13 @@ const runCronJob = async (req, res) => {
             );
             finalCategorizedTransactions.push(...categorizedByAI);
             console.log(
-              `👍 Daily Cron: ${categorizedByAI.length} non-wallet txns processed with AI categories.`
+              `👍 ${categorizedByAI.length} non-wallet txns AI-categorized (User ${userId}).`
             );
           } catch (aiError) {
             console.error(
-              "❌ Daily Cron: AI Category step failed for non-wallet txns:",
+              `❌ AI Category failed for non-wallet txns (User ${userId}):`,
               aiError.message
             );
-            // Add non-wallet transactions with an error category if AI fails
             finalCategorizedTransactions.push(
               ...otherPlatformTransactionsToAI.map((tx) => ({
                 ...tx,
@@ -317,7 +311,6 @@ const runCronJob = async (req, res) => {
             );
           }
         } else {
-          // If preparation resulted in no transactions for AI, add them back without AI category (or with a default)
           finalCategorizedTransactions.push(
             ...otherPlatformTransactionsToAI.map((tx) => ({
               ...tx,
@@ -326,14 +319,13 @@ const runCronJob = async (req, res) => {
           );
         }
       }
-      console.log(
-        `👍 Daily Cron: Total ${finalCategorizedTransactions.length} transactions after categorization process.`
-      );
     } else {
-      console.log("ℹ️ Daily Cron: No transactions fetched to categorize.");
+      console.log(
+        `ℹ️ No transactions fetched to categorize for user ${userId}.`
+      );
     }
 
-    // === CONSOLIDATE BALANCES (remains the same) ===
+    // === CONSOLIDATE BALANCES ===
     let totalBalanceUSD = 0;
     const balanceBreakdown = [];
     let cryptoIds = new Set();
@@ -352,7 +344,7 @@ const runCronJob = async (req, res) => {
       else if (bal.currency && prices[bal.currency.toUpperCase()])
         usdVal = bal.amount * prices[bal.currency.toUpperCase()];
       else if (bal.amount > 0 && bal.currency)
-        console.warn(`No price for ${bal.currency}`);
+        console.warn(`No price for ${bal.currency} (User ${userId})`);
       if (
         bal.amount > 0 ||
         (bal.currency === "USD" && bal.amount !== undefined)
@@ -385,10 +377,10 @@ const runCronJob = async (req, res) => {
         .collection("allUserBalances")
         .doc(userId)
         .set(summaryData, { merge: true });
-      console.log(`💰 Daily Cron: Balance summary saved for ${userId}.`);
+      console.log(`💰 Balance summary saved for ${userId}.`);
     }
 
-    // === STORE NEW TRANSACTIONS (using 'finalCategorizedTransactions') ===
+    // === STORE NEW TRANSACTIONS ===
     const txCollRef = db.collection("allUserTransactions");
     const existSnap = await txCollRef
       .where("userId", "==", userId)
@@ -400,9 +392,9 @@ const runCronJob = async (req, res) => {
     );
     const newTxToSave = finalCategorizedTransactions.filter(
       (tx) => tx.txId && !existIds.has(tx.txId)
-    ); // Use final list
+    );
     console.log(
-      `✨ Daily Cron: ${newTxToSave.length} New Categorized Txns to Save.`
+      `✨ ${newTxToSave.length} New Categorized Txns to Save for ${userId}.`
     );
     if (newTxToSave.length > 0) {
       const batch = db.batch();
@@ -416,39 +408,102 @@ const runCronJob = async (req, res) => {
         });
       });
       await batch.commit();
-      console.log(`🧾 Daily Cron: New categorized txns batch committed.`);
+      console.log(`🧾 New categorized txns batch committed for ${userId}.`);
     }
-    // Update user's total balance to user document
-    const userRef = db.collection("users").doc(userId);
-    // const admin = require("firebase-admin");
 
+    // Update user's total balance to user document (as per your previous code)
+    const userDocRef = db.collection("users").doc(userId);
     try {
-      // console.log("📊 summaryData before update:", summaryData);
-      await userRef.update({
-        totalBalance: summaryData,
-        // cashInHand: admin.firestore.FieldValue.increment(100),
+      await userDocRef.update({
+        totalBalance: summaryData, // Save the whole summary object
+        // lastCronSuccessAt: new Date().toISOString(), // Optional: track last successful run
       });
+      console.log(`Updated totalBalance in users/${userId} document.`);
     } catch (error) {
-      console.error("❌ Failed to update user totalBalance:", error.message);
+      console.error(
+        `❌ Failed to update totalBalance for users/${userId}:`,
+        error.message
+      );
     }
 
-    console.log("✅ Daily Cron job successful for user:", userId);
-    if (res) res.status(200).send(`Daily Cron successful for ${userId}`);
+    console.log(`✅ Daily data processing successful for user: ${userId}`);
   } catch (err) {
     console.error(
-      `❌ Daily Cron Overall Error for ${userId}:`,
+      `❌ Overall Error during daily processing for ${userId}:`,
       err.message,
       err.stack
     );
-    if (res) res.status(500).send("Daily Cron failed");
   }
-};
+}
 
+/**
+ * Main cron job function to fetch all users and process their data.
+ * This function is typically triggered by a scheduler (e.g., Cloud Scheduler).
+ */
+async function runDailyCronForAllUsers(req, res) {
+  console.log("🚀🚀🚀 Starting Daily Cron Job for ALL USERS 🚀🚀🚀");
+  let processedUserCount = 0;
+  let failedUserCount = 0;
+
+  try {
+    const usersSnapshot = await db.collection("users").select().get(); // Fetch only IDs if possible, or minimal fields
+    if (usersSnapshot.empty) {
+      console.log("No users found to process.");
+      if (res) res.status(200).send("No users found to process.");
+      return;
+    }
+
+    console.log(`Found ${usersSnapshot.size} users to process.`);
+
+    // Process users sequentially to avoid overwhelming APIs or resources.
+    // For parallel processing with controlled concurrency, consider using Promise.all with a library like p-limit.
+    for (const userDoc of usersSnapshot.docs) {
+      const userId = userDoc.id;
+      try {
+        await processUserDataForDailyCron(userId);
+        processedUserCount++;
+      } catch (userProcessingError) {
+        failedUserCount++;
+        console.error(
+          `Failed to process user ${userId} completely:`,
+          userProcessingError.message
+        );
+        // Continue to the next user
+      }
+    }
+
+    const summaryMessage = `Daily Cron Job for ALL USERS completed. Processed: ${processedUserCount}, Failed: ${failedUserCount}.`;
+    console.log(`🏁🏁🏁 ${summaryMessage} 🏁🏁🏁`);
+    if (res) res.status(200).send(summaryMessage);
+  } catch (error) {
+    console.error(
+      "❌ FATAL ERROR in runDailyCronForAllUsers:",
+      error.message,
+      error.stack
+    );
+    if (res) res.status(500).send("Fatal error during cron job execution.");
+  }
+}
+
+// If called directly, run for all users.
+// For HTTP trigger, use runDailyCronForAllUsers.
+// The old runCronJob (for single user) can be kept for testing or specific triggers if needed,
+// but the main scheduled job should call runDailyCronForAllUsers.
 if (require.main === module) {
   (async () => {
-    const testUserId = "k3LLnHvMbjgGlSxtzLXl9MjB63y1"; // Using your specified testUserId
-    console.log(`Manually running daily cron for test user: ${testUserId}`);
-    await runCronJob({ query: { userId: testUserId } }, null);
+    // To test processing for a SINGLE user when running script directly:
+    // const testUserId = "k3LLnHvMbjgGlSxtzLXl9MjB63y1";
+    // console.log(`Manually running daily cron for single test user: ${testUserId}`);
+    // await processUserDataForDailyCron(testUserId);
+
+    // To test processing for ALL users:
+    console.log("Manually running daily cron for ALL users...");
+    await runDailyCronForAllUsers(null, null); // Simulate no HTTP req/res
   })();
 }
-module.exports = { runCronJob };
+
+// Export the main function to be called by scheduler
+module.exports = {
+  runDailyCronForAllUsers,
+  processUserDataForDailyCron, // Exporting for potential individual use/testing
+};

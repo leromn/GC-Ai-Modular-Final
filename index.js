@@ -26,14 +26,10 @@ const transactionRoutes = require("./routes/transactions");
 // const balanceRoutes = require("./routes/balance");
 // const notificationRoutes = require("./routes/notifications");
 const integrationRoutes = require("./routes/integrations"); //first to be implemeted
-const cronRoutes = require("./routes/cron");
-// const userRoutes = require("./routes/users"); //not needed
-// const analysisRoutes=require("./routes/analysis") //might be done in abeseloms code
+const cronRoutes = require("./routes/cron"); //second implementation
 
 // Route Usage
 app.use("/api/transactions", transactionRoutes);
-// app.use("/api/balance", balanceRoutes);
-// app.use("/api/notifications", notificationRoutes);
 app.use("/api/integrations", integrationRoutes);
 app.use("/api/cron", cronRoutes);
 app.use("/api/export", exportRoutes);

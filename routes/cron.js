@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
-const { runCronJob } = require("../controllers/cron2.js");
+const { runDailyCronForAllUsers } = require("../controllers/cron2.js");
 
-router.get("/run-tasks", runCronJob);
+router.get("/run-tasks", runDailyCronForAllUsers);
 
 module.exports = router;
