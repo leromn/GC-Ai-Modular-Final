@@ -21,10 +21,11 @@ app.get("/", (req, res) => {
 });
 
 // Route Imports
+const exportRoutes = require("./routes/export");
 const transactionRoutes = require("./routes/transactions");
 // const balanceRoutes = require("./routes/balance");
 // const notificationRoutes = require("./routes/notifications");
-const integrationRoutes = require("./routes/integrations");
+const integrationRoutes = require("./routes/integrations"); //first to be implemeted
 const cronRoutes = require("./routes/cron");
 // const userRoutes = require("./routes/users"); //not needed
 // const analysisRoutes=require("./routes/analysis") //might be done in abeseloms code
@@ -35,7 +36,7 @@ app.use("/api/transactions", transactionRoutes);
 // app.use("/api/notifications", notificationRoutes);
 app.use("/api/integrations", integrationRoutes);
 app.use("/api/cron", cronRoutes);
-// app.use("/api/users", userRoutes);
+app.use("/api/export", exportRoutes);
 // app.use("/api/analysis", analysisRoutes);
 
 const PORT = process.env.PORT || 5000;

@@ -418,6 +418,19 @@ const runCronJob = async (req, res) => {
       await batch.commit();
       console.log(`🧾 Daily Cron: New categorized txns batch committed.`);
     }
+    // Update user's total balance to user document
+    const userRef = db.collection("users").doc(userId);
+    // const admin = require("firebase-admin");
+
+    try {
+      // console.log("📊 summaryData before update:", summaryData);
+      await userRef.update({
+        totalBalance: summaryData,
+        // cashInHand: admin.firestore.FieldValue.increment(100),
+      });
+    } catch (error) {
+      console.error("❌ Failed to update user totalBalance:", error.message);
+    }
 
     console.log("✅ Daily Cron job successful for user:", userId);
     if (res) res.status(200).send(`Daily Cron successful for ${userId}`);

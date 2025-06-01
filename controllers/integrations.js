@@ -69,37 +69,41 @@ async function updateIntegration(req, res) {
       };
     }
 
-    // === WALLETS (append to each coin) ===
-    if (data.wallets) {
+    // === WALLETS (append one wallet address per coin) ===
+    if (data.wallet && data.wallet.coin && data.wallet.address) {
       const existingWallets = currentData?.integrations?.wallets || {};
-      const mergedWallets = { ...existingWallets };
+      const coin = data.wallet.coin.toLowerCase(); // e.g., 'btc', 'eth'
+      const newAddress = data.wallet.address;
 
-      for (const [coin, newWallets] of Object.entries(data.wallets)) {
-        mergedWallets[coin] = [...(existingWallets[coin] || []), ...newWallets];
-      }
+      const updatedWallets = {
+        ...existingWallets,
+        [coin]: [...(existingWallets[coin] || []), newAddress],
+      };
 
-      updates["integrations.wallets"] = mergedWallets;
+      updates["integrations.wallets"] = updatedWallets;
     }
-
-    // === BANKS (append as object entries by unique ID) ===
-    if (data.banks && Array.isArray(data.banks)) {
+    // === BANK (append one bank account with a unique ID) ===
+    if (
+      data.bank &&
+      data.bank.name &&
+      data.bank.apiKey &&
+      data.bank.accessToken
+    ) {
       const existingBanks = currentData?.integrations?.banks || {};
       const mergedBanks = { ...existingBanks };
 
-      for (const bank of data.banks) {
-        const bankId =
-          bank.name?.toLowerCase().replace(/\s+/g, "_") + "_" + Date.now();
-        mergedBanks[bankId] = {
-          platform: bank.name,
-          apiKey: encrypt(bank.apiKey),
-          apiSecret: encrypt(bank.accessToken),
-          addedAt: new Date().toISOString(),
-        };
-      }
+      const bankId =
+        data.bank.name.toLowerCase().replace(/\s+/g, "_") + "_" + Date.now();
+
+      mergedBanks[bankId] = {
+        platform: data.bank.name,
+        apiKey: encrypt(data.bank.apiKey),
+        apiSecret: encrypt(data.bank.accessToken),
+        addedAt: new Date().toISOString(),
+      };
 
       updates["integrations.banks"] = mergedBanks;
     }
-
     // === Save merged updates ===
     await userRef.set(updates, { merge: true });
 

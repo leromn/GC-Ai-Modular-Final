@@ -399,6 +399,15 @@ const initializeUserData = async (req, res) => {
       }
     } else console.log(`ℹ️ Init: No txns to save for ${userId}.`);
 
+    const userRef = db.collection("users").doc(userId);
+    try {
+      await userRef.update({
+        totalBalance: summaryData,
+      });
+    } catch (error) {
+      console.error("❌ Failed to update user totalBalance:", error.message);
+    }
+
     console.log("✅ User initialization (Tx & Bal) successful for:", userId);
     if (res) res.status(200).send(`Initialization successful for ${userId}.`);
   } catch (err) {
